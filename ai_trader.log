@@ -1,0 +1,42 @@
+2025-06-24 23:07:51,337 - ERROR - HTTP Error 404: 
+2025-06-24 23:11:37,084 - ERROR - HTTP Error 404: 
+2025-06-24 23:13:55,887 - ERROR - HTTP Error 404: 
+2025-06-24 23:14:42,057 - ERROR - HTTP Error 404: 
+2025-06-24 23:15:45,876 - ERROR - HTTP Error 404: 
+2025-06-24 23:15:52,640 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:15:58,915 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:06,849 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:14,664 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:21,785 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:27,558 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:33,992 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:43,263 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:50,718 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:16:57,926 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:19:36,656 - ERROR - HTTP Error 404: 
+2025-06-24 23:19:43,533 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:19:51,582 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:19:59,513 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:09,340 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:18,096 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:25,169 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:32,848 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:40,753 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:48,935 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:20:55,085 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:30:37,269 - ERROR - HTTP Error 404: 
+2025-06-24 23:30:43,735 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:30:43,865 - ERROR - Error creating price chart for AAPL: 'y1' is not 1-dimensional
+2025-06-24 23:30:43,882 - ERROR - Error creating technical indicators chart for AAPL: only length-1 arrays can be converted to Python scalars
+2025-06-24 23:30:51,918 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:30:51,929 - ERROR - Error creating price chart for MSFT: 'y1' is not 1-dimensional
+2025-06-24 23:30:51,985 - ERROR - Error creating technical indicators chart for MSFT: only length-1 arrays can be converted to Python scalars
+2025-06-24 23:33:15,602 - ERROR - Error creating price chart for TEST: arrays used as indices must be of integer or boolean type
+2025-06-24 23:35:25,498 - ERROR - HTTP Error 404: 
+2025-06-24 23:35:35,638 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:35:35,805 - ERROR - Error creating price chart for AAPL: The truth value of a Series is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().
+2025-06-24 23:35:35,820 - ERROR - Error creating technical indicators chart for AAPL: only length-1 arrays can be converted to Python scalars
+2025-06-24 23:37:51,745 - ERROR - HTTP Error 404: 
+2025-06-24 23:38:01,244 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-24 23:38:01,366 - ERROR - Error creating price chart for AAPL: The truth value of a Series is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().
+2025-06-24 23:38:01,382 - ERROR - Error creating technical indicators chart for AAPL: only length-1 arrays can be converted to Python scalars
