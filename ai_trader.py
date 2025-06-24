@@ -69,49 +69,23 @@ class PDFReportGenerator:
         )
     
     def create_price_chart(self, ticker: str, data: pd.DataFrame) -> str:
-        """Create price chart with technical indicators"""
+        """Create simple price chart"""
         try:
             if data.empty:
                 print(f"⚠️ No data available for {ticker} price chart")
                 return None
 
-            plt.style.use('default')
-            sns.set_palette("husl")
-            fig, ax = plt.subplots(figsize=(10, 6))
-
-            ax.plot(data.index, data['Close'], label='Close Price', linewidth=2, color='#1f77b4')
-
-            if len(data) >= 20:
-                sma_20 = data['Close'].rolling(window=20).mean()
-                ax.plot(data.index, sma_20, label='20-day SMA', alpha=0.7, color='orange')
-            if len(data) >= 50:
-                sma_50 = data['Close'].rolling(window=50).mean()
-                ax.plot(data.index, sma_50, label='50-day SMA', alpha=0.7, color='red')
-
-            if len(data) >= 20:
-                sma_20 = data['Close'].rolling(window=20).mean()
-                std_20 = data['Close'].rolling(window=20).std()
-                upper_band = sma_20 + (std_20 * 2)
-                lower_band = sma_20 - (std_20 * 2)
-
-                # Use dropna to get only valid points
-                valid = ~(upper_band.isna() | lower_band.isna())
-                upper_valid = upper_band[valid]
-                lower_valid = lower_band[valid]
-                idx_valid = upper_valid.index
-
-                if len(upper_valid) > 0:
-                    ax.plot(idx_valid, upper_valid.values, '--', alpha=0.5, color='gray', label='Bollinger Upper')
-                    ax.plot(idx_valid, lower_valid.values, '--', alpha=0.5, color='gray', label='Bollinger Lower')
-                    ax.fill_between(idx_valid, upper_valid.values, lower_valid.values, alpha=0.1, color='gray')
-
-            ax.set_title(f'{ticker} Price Chart with Technical Indicators', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Date', fontsize=12)
-            ax.set_ylabel('Price ($)', fontsize=12)
-            ax.legend()
-            ax.grid(True, alpha=0.3)
+            # Simple approach - just plot the data
+            plt.figure(figsize=(10, 6))
+            plt.plot(data.index, data['Close'], label='Close Price', linewidth=2)
+            plt.title(f'{ticker} Price Chart')
+            plt.xlabel('Date')
+            plt.ylabel('Price ($)')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
             plt.xticks(rotation=45)
             plt.tight_layout()
+            
             buffer = io.BytesIO()
             plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
             buffer.seek(0)
@@ -124,41 +98,30 @@ class PDFReportGenerator:
             return None
     
     def create_technical_indicators_chart(self, ticker: str, data: pd.DataFrame, indicators: Dict) -> str:
-        """Create technical indicators chart"""
+        """Create simple technical indicators chart"""
         try:
             if data.empty:
                 print(f"⚠️ No data available for {ticker} technical chart")
                 return None
-            plt.style.use('default')
-            sns.set_palette("husl")
-            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
-            ax1.plot(data.index, data['Close'], label='Close Price', linewidth=2, color='#1f77b4')
-            ax1.set_ylabel('Price ($)', fontsize=12)
+            
+            # Simple approach - just plot price and volume
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+            
+            ax1.plot(data.index, data['Close'], label='Close Price', linewidth=2)
+            ax1.set_ylabel('Price ($)')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
-            ax2.bar(data.index, data['Volume'], alpha=0.7, color='lightblue', label='Volume')
-            ax2.set_ylabel('Volume', fontsize=12)
+            
+            ax2.bar(data.index, data['Volume'], alpha=0.7, label='Volume')
+            ax2.set_ylabel('Volume')
             ax2.legend()
             ax2.grid(True, alpha=0.3)
-            if len(data) >= 14:
-                delta = data['Close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                rs = gain / loss
-                rsi = 100 - (100 / (1 + rs))
-                rsi_valid = rsi.dropna()
-                if len(rsi_valid) > 0:
-                    ax3.plot(rsi_valid.index, rsi_valid.values, label='RSI', linewidth=2, color='purple')
-                    ax3.axhline(y=70, color='r', linestyle='--', alpha=0.7, label='Overbought (70)')
-                    ax3.axhline(y=30, color='g', linestyle='--', alpha=0.7, label='Oversold (30)')
-                    ax3.set_ylabel('RSI', fontsize=12)
-                    ax3.set_ylim(0, 100)
-                    ax3.legend()
-                    ax3.grid(True, alpha=0.3)
-            fig.suptitle(f'{ticker} Technical Indicators', fontsize=16, fontweight='bold')
-            ax3.set_xlabel('Date', fontsize=12)
+            
+            fig.suptitle(f'{ticker} Technical Indicators')
+            ax2.set_xlabel('Date')
             plt.xticks(rotation=45)
             plt.tight_layout()
+            
             buffer = io.BytesIO()
             plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
             buffer.seek(0)
