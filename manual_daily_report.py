@@ -31,12 +31,13 @@ def main():
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"manual_daily_report_{timestamp}.pdf"
             
-            # Save the PDF
+            #save report in folder
+            os.makedirs('reports', exist_ok=True)
+            filename = os.path.join('reports', filename)
             with open(filename, "wb") as f:
                 f.write(pdf_buffer.getvalue())
-            
-            print(f"✅ Daily portfolio report saved as: {filename}")
-            print(f"📁 File location: {os.path.abspath(filename)}")
+                print(f"✅ Daily portfolio report saved as: {filename}")
+                print(f"📁 File location: {os.path.abspath(filename)}")
             
             # Also print a quick summary to console
             performance = trader.get_position_performance()

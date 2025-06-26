@@ -27,6 +27,12 @@ import io
 import matplotlib.font_manager as fm
 import random
 
+# Import all configuration dictionaries from config.py
+from config import (
+    TRADING_CONFIG, RISK_CONFIG, AI_CONFIG, SCREENING_CONFIG,
+    NOTIFICATION_CONFIG, ETHICAL_CONFIG, STOCK_UNIVERSE, TECHNICAL_CONFIG, LOGGING_CONFIG
+)
+
 # Load environment variables
 load_dotenv()
 
@@ -654,9 +660,11 @@ class StockAnalyzer:
         self.openai_client = openai_client
         self.pdf_generator = PDFReportGenerator()
         
-    def get_stock_data(self, ticker: str, period: str = "6mo") -> pd.DataFrame:
+    def get_stock_data(self, ticker: str, period: str = None) -> pd.DataFrame:
         """Get stock data from Yahoo Finance"""
         try:
+            if period is None:
+                period = AI_CONFIG['analysis_period']
             print(f"📊 Fetching data for {ticker}...")
             data = yf.download(ticker, period=period, interval="1d", auto_adjust=True)
             if not data.empty:
@@ -864,10 +872,10 @@ Return JSON:
 """
             
             response = self.openai_client.chat.completions.create(
-                model="gpt-4",
+                model=AI_CONFIG['model'],
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=300  # Limit tokens to save costs
+                temperature=AI_CONFIG['temperature'],
+                max_tokens=AI_CONFIG['max_tokens']
             )
             
             try:
@@ -902,100 +910,46 @@ class StockScreener:
     
     def get_stock_universe(self) -> List[str]:
         """Get a list of stocks to screen"""
-        # Focused list for better performance and lower API costs
-        stocks = [
-            # Tech (your current holdings)
-            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX',
-            # Renewable Energy (ethical focus)
-            'ENPH', 'SEDG', 'RUN', 'SPWR', 'FSLR', 'NEE', 'BEP', 'CWEN',
-            # Electric Vehicles
-            'RIVN', 'LCID', 'NIO', 'XPEV', 'LI',
-            # Clean Tech
-            'PLUG', 'BLDP', 'FCEL', 'BEEM', 'MAXN',
-            # Healthcare Tech (excluding big pharma)
-            'TDOC', 'CRWD', 'ZM', 'DOCU', 'TWLO',
-            # Financial Tech
-            'SQ', 'PYPL', 'COIN', 'HOOD', 'AFRM',
-            # Consumer
-            'NKE', 'SBUX', 'TGT', 'COST', 'HD',
-            # European stocks (since you're in EUR)
-            'ASML', 'SAP', 'NESN.SW', 'NOVO-B.CO', 'ROCHE.SW',
-            # Additional stocks requested
-            'PRY.MI',  # Prysmian (Italian)
-            'ORSTED.CO',  # Orsted (Danish)
-            'PCELL.ST',  # Powercell Sweden
-            'QS',  # Quantumscape
-            'FLNC',  # Fluence Energy
-            # Additional clean energy and tech
-            'VWDRY',  # Vestas Wind Systems
-            'ENEL.MI',  # Enel (Italian utility)
-            'EDF.PA',  # EDF (French utility)
-            'SIEGY',  # Siemens
-            'ABB',  # ABB Ltd
-            'WOLF',  # Wolfspeed
-            'ON',  # ON Semiconductor
-            'STM',  # STMicroelectronics
-            'NXP',  # NXP Semiconductors
-            'INFN',  # Infinera
-            'COHR',  # Coherent
-            'IIVI',  # II-VI Incorporated
-            'LITE',  # Lumentum
-            'ACN',  # Accenture
-            'CTSH',  # Cognizant
-            'WIT',  # Wipro
-            'INFY',  # Infosys
-            'TCS',  # Tata Consultancy Services
-        ]
+        # Use STOCK_UNIVERSE from config
+        stocks = []
+        for sector_list in STOCK_UNIVERSE.values():
+            stocks.extend(sector_list)
         return stocks
     
-    def screen_stocks(self, min_market_cap: float = 500e6) -> List[Dict]:
+    def screen_stocks(self, min_market_cap: float = None) -> List[Dict]:
         """Screen stocks based on criteria"""
         stocks = self.get_stock_universe()
         screened_stocks = []
-        
         print(f"🔍 Screening {len(stocks)} stocks...")
-        
+        if min_market_cap is None:
+            min_market_cap = TRADING_CONFIG['min_market_cap']
         for ticker in stocks:
             try:
                 stock = yf.Ticker(ticker)
                 info = stock.info
-                
-                # Debug: Print stock info for troubleshooting
                 market_cap = info.get('marketCap', 0)
                 current_price = info.get('regularMarketPrice', 0)
                 volume = info.get('volume', 0)
                 avg_volume = info.get('averageVolume', 0)
-                
-                #print(f"🔍 {ticker}: Market Cap=${market_cap:,.0f}, Price=${current_price:.2f}, Volume={volume:,.0f}, Avg Volume={avg_volume:,.0f}")
-                
-                # Basic filters with detailed feedback
                 if market_cap < min_market_cap:
                     print(f"⏭️ Skipped {ticker}: Market cap too low (${market_cap:,.0f} < ${min_market_cap:,.0f})")
                     continue
-                
-                if current_price < 2:
-                    print(f"⏭️ Skipped {ticker}: Price too low (${current_price:.2f} < $2.00)")
+                if current_price < TRADING_CONFIG['min_stock_price']:
+                    print(f"⏭️ Skipped {ticker}: Price too low (${current_price:.2f} < ${TRADING_CONFIG['min_stock_price']:.2f})")
                     continue
-                
-                if current_price > 2000:
-                    print(f"⏭️ Skipped {ticker}: Price too high (${current_price:.2f} > $2000.00)")
+                if current_price > TRADING_CONFIG['max_stock_price']:
+                    print(f"⏭️ Skipped {ticker}: Price too high (${current_price:.2f} > ${TRADING_CONFIG['max_stock_price']:.2f})")
                     continue
-                
                 # Ethical filter
                 if not self.ethical_filter.is_ethical(info):
                     continue
-                
-                # Get recent price data
                 data = stock.history(period="1mo")
                 if data.empty:
                     print(f"⏭️ Skipped {ticker}: No price data available")
                     continue
-                
-                # Volume check with more lenient criteria
-                if avg_volume > 0 and volume < avg_volume * 0.2:
+                if avg_volume > 0 and volume < avg_volume * TRADING_CONFIG['min_volume_ratio']:
                     print(f"⏭️ Skipped {ticker}: Low volume (current: {volume:,.0f}, avg: {avg_volume:,.0f}, ratio: {volume/avg_volume:.2f})")
                     continue
-                
                 screened_stocks.append({
                     'ticker': ticker,
                     'name': info.get('longName', ticker),
@@ -1007,13 +961,9 @@ class StockScreener:
                     'pe_ratio': info.get('trailingPE', 0),
                     'beta': info.get('beta', 1.0)
                 })
-                
-                #print(f"✅ {ticker} passed screening")
-                
             except Exception as e:
                 print(f"❌ Error screening {ticker}: {e}")
                 continue
-        
         print(f"✅ Screening complete: {len(screened_stocks)} stocks passed")
         return screened_stocks
 
@@ -1223,11 +1173,15 @@ class AITrader:
             print(f"❌ Trade failed for {ticker}: {e}")
             return False
     
-    def analyze_and_trade(self, max_trades: int = 3, min_confidence: int = 5):
+    def analyze_and_trade(self, max_trades: int = None, min_confidence: int = None):
         """Main analysis and trading function"""
         print("\n" + "="*60)
         print("🤖 STARTING AI ANALYSIS AND TRADING SESSION")
         print("="*60)
+        if max_trades is None:
+            max_trades = TRADING_CONFIG['max_trades_per_session']
+        if min_confidence is None:
+            min_confidence = TRADING_CONFIG['min_confidence_score']
         
         session_data = {
             'stocks_analyzed': 0,
@@ -1368,7 +1322,7 @@ class AITrader:
             if decision == "BUY" and ticker not in current_positions:
                 # Calculate position size (2% of portfolio per trade)
                 portfolio_value = account['portfolio_value']
-                position_size = portfolio_value * 0.02
+                position_size = min(portfolio_value * TRADING_CONFIG['position_size_pct'], TRADING_CONFIG['max_position_size'])
                 price = result['stock_info']['current_price']
                 quantity = max(1, int(position_size / price))
                 
@@ -1758,11 +1712,12 @@ class AITrader:
             if not positions:
                 return None
             
-            # Get historical data for all positions
+            # Get historical data for all positions - use 1 month instead of 3 months
+            # since the user only started trading recently
             portfolio_data = {}
             for ticker in positions.keys():
                 try:
-                    data = yf.download(ticker, period="3mo", interval="1d", auto_adjust=True)
+                    data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True)
                     if not data.empty:
                         portfolio_data[ticker] = data
                 except Exception as e:
@@ -1781,18 +1736,22 @@ class AITrader:
                 total_invested = 0
                 total_current_value = 0
                 
-                for ticker, data in portfolio_data.items():
-                    if date in data.index:
-                        position = positions[ticker]
-                        quantity = position['quantity']
-                        avg_price = position['avg_price']
-                        current_price = data.loc[date, 'Close']
-                        
-                        invested = quantity * avg_price
-                        current_value = quantity * current_price
-                        
-                        total_invested += invested
-                        total_current_value += current_value
+                for ticker, position in positions.items():
+                    if ticker in portfolio_data:
+                        data = portfolio_data[ticker]
+                        if date in data.index:
+                            quantity = position['quantity']
+                            avg_price = position['avg_price']
+                            current_price = data.loc[date, 'Close']
+                            # Fix for single element Series
+                            if isinstance(current_price, pd.Series):
+                                current_price = float(current_price.iloc[0])
+                            else:
+                                current_price = float(current_price)
+                            invested = quantity * avg_price
+                            current_value = quantity * current_price
+                            total_invested += invested
+                            total_current_value += current_value
                 
                 if total_invested > 0:
                     pnl = total_current_value - total_invested
@@ -1803,16 +1762,21 @@ class AITrader:
                     daily_pnl.append(0)
                     daily_pnl_pct.append(0)
             
+            # Ensure all arrays are 1D numpy arrays for plotting
+            dates = np.array(dates)
+            daily_pnl = np.array(daily_pnl).flatten()
+            daily_pnl_pct = np.array(daily_pnl_pct).flatten()
+            
             # Create the chart
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-            fig.suptitle('Portfolio Performance Over Time', fontsize=16, fontweight='bold')
+            fig.suptitle('Portfolio Performance Over Time (Last 30 Days)', fontsize=16, fontweight='bold')
             
             # Currency P&L chart
             ax1.plot(dates, daily_pnl, linewidth=2, color='blue', alpha=0.8)
             ax1.axhline(y=0, color='red', linestyle='--', alpha=0.5)
-            ax1.fill_between(dates, daily_pnl, 0, where=(np.array(daily_pnl) >= 0), 
+            ax1.fill_between(dates, daily_pnl, 0, where=(daily_pnl >= 0), 
                            color='green', alpha=0.3, label='Profit')
-            ax1.fill_between(dates, daily_pnl, 0, where=(np.array(daily_pnl) < 0), 
+            ax1.fill_between(dates, daily_pnl, 0, where=(daily_pnl < 0), 
                            color='red', alpha=0.3, label='Loss')
             ax1.set_ylabel('Unrealized P&L ($)', fontsize=12)
             ax1.set_title('Total Unrealized P&L (Currency)', fontsize=14)
@@ -1822,9 +1786,9 @@ class AITrader:
             # Percentage P&L chart
             ax2.plot(dates, daily_pnl_pct, linewidth=2, color='purple', alpha=0.8)
             ax2.axhline(y=0, color='red', linestyle='--', alpha=0.5)
-            ax2.fill_between(dates, daily_pnl_pct, 0, where=(np.array(daily_pnl_pct) >= 0), 
+            ax2.fill_between(dates, daily_pnl_pct, 0, where=(daily_pnl_pct >= 0), 
                            color='green', alpha=0.3, label='Profit %')
-            ax2.fill_between(dates, daily_pnl_pct, 0, where=(np.array(daily_pnl_pct) < 0), 
+            ax2.fill_between(dates, daily_pnl_pct, 0, where=(daily_pnl_pct < 0), 
                            color='red', alpha=0.3, label='Loss %')
             ax2.set_ylabel('Unrealized P&L (%)', fontsize=12)
             ax2.set_title('Total Unrealized P&L (Percentage)', fontsize=14)
@@ -1957,7 +1921,7 @@ def main():
     trader.notifier.send_message("🤖 AI Trader started successfully!")
     
     # Run analysis and trading with lower confidence threshold
-    session_data = trader.analyze_and_trade(max_trades=3, min_confidence=5)
+    session_data = trader.analyze_and_trade()  # Now uses config defaults
     
     print("🎉 AI Trading System completed successfully!")
 
