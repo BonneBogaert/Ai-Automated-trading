@@ -6,8 +6,38 @@ Runs every hour during market hours and generates daily reports.
 
 import os
 import sys
+import warnings
 from datetime import datetime, timedelta
 import logging
+import gc
+
+# Suppress deprecation warnings from dependencies
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="datetime")
+
+def get_memory_usage():
+    """Get current memory usage in MB"""
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        return memory_info.rss / 1024 / 1024  # Convert to MB
+    except:
+        return 0
+
+def log_memory(message=""):
+    """Log memory usage with a message"""
+    memory = get_memory_usage()
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    log_msg = f"[{timestamp}] {message} | Memory: {memory:.1f}MB"
+    print(log_msg)
+    logging.info(log_msg)
+    
+    if memory > 400:
+        warning_msg = f"⚠️  WARNING: High memory usage ({memory:.1f}MB) - approaching Render limit (512MB)"
+        print(warning_msg)
+        logging.warning(warning_msg)
+    
+    return memory
 
 def is_market_hours() -> bool:
     """Check if current time is during market hours (9:30 AM - 4:00 PM ET, Mon-Fri)"""
@@ -42,6 +72,7 @@ def main():
     """Main function for hourly trading session"""
     try:
         logging.info("🚀 Starting Hourly AI Trading Session...")
+        initial_memory = log_memory("Session started")
         
         # Check if we're in market hours
         if not is_market_hours():
@@ -49,10 +80,13 @@ def main():
             return
         
         # Import AITrader
+        log_memory("Before importing AITrader")
         from ai_trader import AITrader
+        log_memory("After importing AITrader")
         
         # Initialize the trader
         trader = AITrader()
+        log_memory("After initializing AITrader")
         
         # Get current time info
         now = datetime.now(datetime.UTC)
@@ -62,11 +96,13 @@ def main():
         
         # Get current portfolio status
         account = trader.get_account_info()
+        log_memory("After getting account info")
         if account:
             logging.info(f"💰 Portfolio Value: ${account.get('portfolio_value', 0):,.2f}")
             logging.info(f"💵 Available Cash: ${account.get('cash', 0):,.2f}")
         
         positions = trader.get_portfolio_positions()
+        log_memory("After getting positions")
         if positions:
             logging.info(f"📈 Active Positions: {len(positions)}")
             for ticker, pos in positions.items():
@@ -75,10 +111,12 @@ def main():
             logging.info("📈 No active positions")
         
         # Run the trading session with config values
+        log_memory("Before trading session")
         session_data = trader.analyze_and_trade(
             max_trades=3,
             min_confidence=8
         )
+        log_memory("After trading session")
         
         if session_data:
             logging.info(f"✅ Trading session completed:")
@@ -103,7 +141,9 @@ def main():
             
             try:
                 # Generate and save daily report
+                log_memory("Before generating PDF report")
                 pdf_buffer = trader.generate_position_report_pdf()
+                log_memory("After generating PDF report")
                 if pdf_buffer:
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     filename = f"reports/daily_report_{timestamp}.pdf"
@@ -118,6 +158,7 @@ def main():
                     
                     # Send daily summary via Telegram
                     performance = trader.get_position_performance()
+                    log_memory("After getting position performance")
                     if performance:
                         summary = performance['portfolio_summary']
                         message = f"""
@@ -153,6 +194,16 @@ def main():
                     
             except Exception as e:
                 logging.error(f"❌ Error generating daily report: {e}")
+        
+        # Final cleanup
+        gc.collect()
+        final_memory = log_memory("After garbage collection")
+        
+        # Memory summary
+        memory_diff = final_memory - initial_memory
+        summary_msg = f"📊 Memory Summary: Initial: {initial_memory:.1f}MB, Final: {final_memory:.1f}MB, Difference: {memory_diff:.1f}MB"
+        logging.info(summary_msg)
+        print(summary_msg)
         
         logging.info("🎉 Hourly trading session completed successfully!")
         

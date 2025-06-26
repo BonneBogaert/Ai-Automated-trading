@@ -13,7 +13,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 import json
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -45,9 +45,43 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 # Configure fonts and memory optimization
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
-plt.rcParams['font.size'] = 10
-plt.rcParams['figure.max_open_warning'] = 10  # Limit open figures
-plt.rcParams['figure.dpi'] = 100  # Reduce DPI for memory savings
+plt.rcParams['font.size'] = 8  # Reduced font size
+plt.rcParams['figure.max_open_warning'] = 5  # Reduced limit
+plt.rcParams['figure.dpi'] = 80  # Further reduced DPI
+plt.rcParams['savefig.dpi'] = 80  # Save DPI
+plt.rcParams['figure.figsize'] = (6, 4)  # Smaller default figure size
+
+class DataCache:
+    """Simple in-memory cache for stock data to avoid repeated API calls"""
+    
+    def __init__(self, max_size: int = 50):
+        self.cache = {}
+        self.max_size = max_size
+        self.access_times = {}
+    
+    def get(self, key: str) -> Optional[pd.DataFrame]:
+        """Get data from cache"""
+        if key in self.cache:
+            self.access_times[key] = datetime.now()
+            return self.cache[key]
+        return None
+    
+    def set(self, key: str, data: pd.DataFrame):
+        """Set data in cache with LRU eviction"""
+        if len(self.cache) >= self.max_size:
+            # Remove least recently used
+            oldest_key = min(self.access_times.keys(), key=lambda k: self.access_times[k])
+            del self.cache[oldest_key]
+            del self.access_times[oldest_key]
+        
+        self.cache[key] = data
+        self.access_times[key] = datetime.now()
+    
+    def clear(self):
+        """Clear all cached data"""
+        self.cache.clear()
+        self.access_times.clear()
+        gc.collect()
 
 class PDFReportGenerator:
     """Generate detailed PDF reports with charts and analysis"""
@@ -68,17 +102,25 @@ class PDFReportGenerator:
             spaceAfter=20,
             textColor=colors.darkgreen
         )
+        # Cache for charts to avoid regeneration
+        self.chart_cache = {}
     
     def create_price_chart(self, ticker: str, data: pd.DataFrame) -> str:
-        """Create simple price chart"""
+        """Create simple price chart with memory optimization"""
         try:
             if data.empty:
                 print(f"⚠️ No data available for {ticker} price chart")
                 return None
 
+            # Check cache first
+            cache_key = f"price_{ticker}_{data.index[-1].strftime('%Y%m%d')}"
+            if cache_key in self.chart_cache:
+                print(f"✅ Using cached price chart for {ticker}")
+                return self.chart_cache[cache_key]
+
             # Simple approach - just plot the data
-            plt.figure(figsize=(8, 4))  # Reduced figure size
-            plt.plot(data.index, data['Close'], label='Close Price', linewidth=1.5)
+            plt.figure(figsize=(6, 3))  # Further reduced figure size
+            plt.plot(data.index, data['Close'], label='Close Price', linewidth=1.0)
             plt.title(f'{ticker} Price Chart')
             plt.xlabel('Date')
             plt.ylabel('Price ($)')
@@ -88,10 +130,13 @@ class PDFReportGenerator:
             plt.tight_layout()
             
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')  # Reduced DPI
+            plt.savefig(buffer, format='png', dpi=80, bbox_inches='tight')  # Further reduced DPI
             buffer.seek(0)
             plt.close()  # Explicitly close figure
             gc.collect()  # Force garbage collection
+            
+            # Cache the result
+            self.chart_cache[cache_key] = buffer
             print(f"✅ Price chart created successfully for {ticker}")
             return buffer
         except Exception as e:
@@ -102,10 +147,16 @@ class PDFReportGenerator:
             return None
     
     def create_technical_indicators_chart(self, ticker: str, data: pd.DataFrame, indicators: Dict) -> str:
-        """Create comprehensive technical indicators chart with enhanced visuals"""
+        """Create comprehensive technical indicators chart with enhanced visuals and memory optimization"""
         try:
             if data.empty:
                 return None
+
+            # Check cache first
+            cache_key = f"technical_{ticker}_{data.index[-1].strftime('%Y%m%d')}"
+            if cache_key in self.chart_cache:
+                print(f"✅ Using cached technical chart for {ticker}")
+                return self.chart_cache[cache_key]
 
             # Handle MultiIndex columns
             if isinstance(data.columns, pd.MultiIndex):
@@ -119,9 +170,9 @@ class PDFReportGenerator:
             # Set style for better visuals
             plt.style.use('seaborn-v0_8')
             
-            # Create comprehensive technical analysis chart
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))  # Reduced figure size
-            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=16, fontweight='bold', y=0.98)
+            # Create comprehensive technical analysis chart with smaller size
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 6))  # Reduced figure size
+            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=14, fontweight='bold', y=0.98)
             
             # Color scheme
             colors = {
@@ -139,15 +190,15 @@ class PDFReportGenerator:
             }
             
             # Price chart with moving averages and decision clues
-            ax1.plot(data.index, close_data, label='Close Price', linewidth=2.5, color=colors['price'], alpha=0.9)
+            ax1.plot(data.index, close_data, label='Close Price', linewidth=2.0, color=colors['price'], alpha=0.9)
             
             # Add moving averages if available
             if 'sma_20' in indicators and 'sma_50' in indicators:
                 sma_20_series = close_data.rolling(window=20).mean()
                 sma_50_series = close_data.rolling(window=50).mean()
                 
-                ax1.plot(data.index, sma_20_series, label='SMA 20', linewidth=2, color=colors['sma20'], alpha=0.8)
-                ax1.plot(data.index, sma_50_series, label='SMA 50', linewidth=2, color=colors['sma50'], alpha=0.8)
+                ax1.plot(data.index, sma_20_series, label='SMA 20', linewidth=1.5, color=colors['sma20'], alpha=0.8)
+                ax1.plot(data.index, sma_50_series, label='SMA 50', linewidth=1.5, color=colors['sma50'], alpha=0.8)
                 
                 # Add decision clues based on moving average crossovers
                 current_price = close_data.iloc[-1]
@@ -170,7 +221,7 @@ class PDFReportGenerator:
                     decision_color = colors['neutral']
                 
                 # Try to use emoji, fallback to text if font doesn't support it
-                ax1.text(0.02, 0.98, decision_text, transform=ax1.transAxes, fontsize=12, fontname='DejaVu Sans',
+                ax1.text(0.02, 0.98, decision_text, transform=ax1.transAxes, fontsize=10, fontname='DejaVu Sans',
                         bbox=dict(boxstyle="round,pad=0.3", facecolor=decision_color, alpha=0.7),
                         verticalalignment='top')
             
@@ -183,9 +234,9 @@ class PDFReportGenerator:
                 ax1.plot(data.index, bb_upper_series, color='gray', linestyle=':', alpha=0.7, linewidth=1)
                 ax1.plot(data.index, bb_lower_series, color='gray', linestyle=':', alpha=0.7, linewidth=1)
             
-            ax1.set_title(f'{ticker} Price Chart with Technical Indicators', fontsize=14, fontweight='bold')
-            ax1.set_ylabel('Price ($)', fontsize=12)
-            ax1.legend(loc='upper left', fontsize=10)
+            ax1.set_title(f'{ticker} Price Chart with Technical Indicators', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Price ($)', fontsize=10)
+            ax1.legend(loc='upper left', fontsize=8)
             ax1.grid(True, alpha=0.3)
             
             # Add current price annotation
@@ -205,9 +256,9 @@ class PDFReportGenerator:
             volume_sma = volume_data.rolling(window=20).mean()
             ax2.plot(data.index, volume_sma, color='blue', linewidth=2, label='Volume SMA (20)', alpha=0.8)
             
-            ax2.set_title(f'{ticker} Volume Analysis', fontsize=14, fontweight='bold')
-            ax2.set_ylabel('Volume', fontsize=12)
-            ax2.legend(loc='upper left', fontsize=10)
+            ax2.set_title(f'{ticker} Volume Analysis', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Volume', fontsize=10)
+            ax2.legend(loc='upper left', fontsize=8)
             ax2.grid(True, alpha=0.3)
 
             # RSI chart with enhanced styling
@@ -218,7 +269,7 @@ class PDFReportGenerator:
                 rs = gain / loss
                 rsi_series = 100 - (100 / (1 + rs))
                 
-                ax3.plot(data.index, rsi_series, label='RSI (14)', linewidth=2.5, color=colors['rsi'])
+                ax3.plot(data.index, rsi_series, label='RSI (14)', linewidth=2.0, color=colors['rsi'])
                 
                 # Add overbought/oversold zones with fill
                 ax3.fill_between(data.index, 70, 100, alpha=0.2, color=colors['overbought'], label='Overbought Zone')
@@ -241,14 +292,14 @@ class PDFReportGenerator:
                     rsi_color = colors['neutral']
                 
                 ax3.text(0.02, 0.98, f"{rsi_decision}\nRSI: {current_rsi:.1f}", 
-                        transform=ax3.transAxes, fontsize=11, fontname='DejaVu Sans',
+                        transform=ax3.transAxes, fontsize=9, fontname='DejaVu Sans',
                         bbox=dict(boxstyle="round,pad=0.3", facecolor=rsi_color, alpha=0.7),
                         verticalalignment='top')
                 
-                ax3.set_title(f'{ticker} RSI (14) Momentum Indicator', fontsize=14, fontweight='bold')
-                ax3.set_ylabel('RSI', fontsize=12)
+                ax3.set_title(f'{ticker} RSI (14) Momentum Indicator', fontsize=12, fontweight='bold')
+                ax3.set_ylabel('RSI', fontsize=10)
                 ax3.set_ylim(0, 100)
-                ax3.legend(loc='upper left', fontsize=10)
+                ax3.legend(loc='upper left', fontsize=8)
                 ax3.grid(True, alpha=0.3)
 
             # MACD chart with enhanced styling
@@ -262,8 +313,8 @@ class PDFReportGenerator:
                 # Color histogram based on MACD vs Signal
                 histogram_colors = ['green' if h >= 0 else 'red' for h in histogram]
                 
-                ax4.plot(data.index, macd_series, label='MACD', linewidth=2.5, color=colors['macd'])
-                ax4.plot(data.index, signal_series, label='Signal', linewidth=2.5, color=colors['signal'])
+                ax4.plot(data.index, macd_series, label='MACD', linewidth=2.0, color=colors['macd'])
+                ax4.plot(data.index, signal_series, label='Signal', linewidth=2.0, color=colors['signal'])
                 ax4.bar(data.index, histogram, alpha=0.6, color=histogram_colors, label='Histogram', width=0.8)
                 
                 # Add zero line
@@ -287,13 +338,13 @@ class PDFReportGenerator:
                     macd_color = colors['neutral']
                 
                 ax4.text(0.02, 0.98, f"{macd_decision}\nMACD: {current_macd:.4f}", 
-                        transform=ax4.transAxes, fontsize=11, fontname='DejaVu Sans',
+                        transform=ax4.transAxes, fontsize=9, fontname='DejaVu Sans',
                         bbox=dict(boxstyle="round,pad=0.3", facecolor=macd_color, alpha=0.7),
                         verticalalignment='top')
                 
-                ax4.set_title(f'{ticker} MACD Trend Indicator', fontsize=14, fontweight='bold')
-                ax4.set_ylabel('MACD', fontsize=12)
-                ax4.legend(loc='upper left', fontsize=10)
+                ax4.set_title(f'{ticker} MACD Trend Indicator', fontsize=12, fontweight='bold')
+                ax4.set_ylabel('MACD', fontsize=10)
+                ax4.legend(loc='upper left', fontsize=8)
                 ax4.grid(True, alpha=0.3)
 
             # Overall styling
@@ -301,19 +352,27 @@ class PDFReportGenerator:
             
             # Add timestamp
             fig.text(0.99, 0.01, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 
-                    fontsize=10, ha='right', va='bottom', alpha=0.7)
+                    fontsize=8, ha='right', va='bottom', alpha=0.7)
             
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', facecolor='white')  # Reduced DPI
+            plt.savefig(buffer, format='png', dpi=80, bbox_inches='tight', facecolor='white')  # Further reduced DPI
             buffer.seek(0)
             plt.close(fig)  # Explicitly close figure
             gc.collect()  # Force garbage collection
+            
+            # Cache the result
+            self.chart_cache[cache_key] = buffer
             return buffer
         except Exception as e:
             logging.error(f"Error creating technical indicators chart for {ticker}: {e}")
             plt.close('all')  # Close all figures on error
             gc.collect()
             return None
+
+    def clear_cache(self):
+        """Clear chart cache to free memory"""
+        self.chart_cache.clear()
+        gc.collect()
     
     def generate_trading_report(self, trading_session: Dict, analyzer=None) -> str:
         """Generate comprehensive PDF trading report with vertical stack layout per stock"""
@@ -663,21 +722,34 @@ class EthicalFilter:
         return True
 
 class StockAnalyzer:
-    """Analyze stocks using technical and fundamental data"""
+    """Analyze stocks using technical and fundamental data with memory optimization"""
     
     def __init__(self, openai_client: OpenAI):
         self.openai_client = openai_client
         self.pdf_generator = PDFReportGenerator()
+        self.data_cache = DataCache(max_size=30)  # Cache for stock data
+        self.news_cache = {}  # Simple cache for news sentiment
+        self.indicators_cache = {}  # Cache for calculated indicators
         
     def get_stock_data(self, ticker: str, period: str = None) -> pd.DataFrame:
-        """Get stock data from Yahoo Finance"""
+        """Get stock data from Yahoo Finance with caching"""
         try:
             if period is None:
                 period = AI_CONFIG['analysis_period']
+            
+            # Check cache first
+            cache_key = f"{ticker}_{period}"
+            cached_data = self.data_cache.get(cache_key)
+            if cached_data is not None:
+                print(f"✅ Using cached data for {ticker}")
+                return cached_data
+            
             print(f"📊 Fetching data for {ticker}...")
             data = yf.download(ticker, period=period, interval="1d", auto_adjust=True, progress=False)
             if not data.empty:
                 print(f"✅ Successfully fetched {len(data)} days of data for {ticker}")
+                # Cache the data
+                self.data_cache.set(cache_key, data)
             else:
                 print(f"❌ No data found for {ticker}")
             return data
@@ -686,9 +758,16 @@ class StockAnalyzer:
             return pd.DataFrame()
     
     def calculate_technical_indicators(self, data: pd.DataFrame) -> Dict:
-        """Calculate technical indicators"""
+        """Calculate technical indicators with caching"""
         if data.empty:
             return {}
+        
+        # Create cache key based on data hash
+        data_hash = hash(str(data.index[-1]) + str(data['Close'].iloc[-1]))
+        cache_key = f"indicators_{data_hash}"
+        
+        if cache_key in self.indicators_cache:
+            return self.indicators_cache[cache_key]
             
         indicators = {}
         
@@ -759,11 +838,21 @@ class StockAnalyzer:
         price_5_days_ago = safe_scalar(close_data.iloc[-5] if len(close_data) >= 5 else close_data.iloc[0])
         indicators['price_momentum'] = (current_price / price_5_days_ago - 1) * 100
         
+        # Cache the indicators
+        self.indicators_cache[cache_key] = indicators
         return indicators
     
     def get_news_sentiment(self, ticker: str) -> Tuple[float, str]:
-        """Get news sentiment for a ticker"""
+        """Get news sentiment for a ticker with caching"""
         try:
+            # Check cache first (cache for 1 hour)
+            cache_key = f"news_{ticker}"
+            if cache_key in self.news_cache:
+                cached_time, cached_result = self.news_cache[cache_key]
+                if (datetime.now() - cached_time).seconds < 3600:  # 1 hour cache
+                    print(f"✅ Using cached news sentiment for {ticker}")
+                    return cached_result
+            
             print(f"📰 Fetching news for {ticker}...")
             try:
                 stock_info = yf.Ticker(ticker).info
@@ -781,7 +870,6 @@ class StockAnalyzer:
             url = f"https://newsapi.org/v2/everything?q={ticker}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
             response = requests.get(url)
             news_data = response.json()
-            #print(f"[DEBUG] NewsAPI response for {ticker}: {news_data}")
 
             # If no news, try with company_name
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
@@ -789,7 +877,6 @@ class StockAnalyzer:
                 url = f"https://newsapi.org/v2/everything?q={company_name}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
                 response = requests.get(url)
                 news_data = response.json()
-                #print(f"[DEBUG] NewsAPI response for {company_name}: {news_data}")
 
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
                 print(f"⚠️ No recent news found for {ticker}")
@@ -809,7 +896,12 @@ class StockAnalyzer:
             news_text = " | ".join(news_summary[:2])  # Limit summary length
 
             print(f"✅ News sentiment for {ticker}: {avg_sentiment:.3f}")
-            return avg_sentiment, news_text
+            
+            # Cache the result
+            result = (avg_sentiment, news_text)
+            self.news_cache[cache_key] = (datetime.now(), result)
+            
+            return result
 
         except Exception as e:
             print(f"❌ Error getting news for {ticker}: {e}")
@@ -910,6 +1002,14 @@ Return JSON:
                 "risk": "MEDIUM",
                 "expected_movement": "SIDEWAYS"
             }
+
+    def clear_caches(self):
+        """Clear all caches to free memory"""
+        self.data_cache.clear()
+        self.news_cache.clear()
+        self.indicators_cache.clear()
+        self.pdf_generator.clear_cache()
+        gc.collect()
 
 class StockScreener:
     """Screen for potential stocks to trade"""
@@ -1087,7 +1187,7 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         return formatted
 
 class AITrader:
-    """Main AI trading system"""
+    """Main AI trading system with memory optimization"""
     
     def __init__(self):
         print("🚀 Initializing AI Trading System...")
@@ -1100,15 +1200,27 @@ class AITrader:
         self.trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
         self.data_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
         
-        # Portfolio tracking
+        # Portfolio tracking with caching
         self.portfolio = {}
         self.trade_history = []
+        self._account_cache = None
+        self._positions_cache = None
+        self._last_cache_time = None
+        self._cache_duration = 60  # Cache for 60 seconds
         
         print("✅ AI Trading System initialized successfully!")
         
     def get_account_info(self) -> Dict:
-        """Get account information from Alpaca"""
+        """Get account information from Alpaca with caching"""
         try:
+            current_time = datetime.now()
+            
+            # Check cache first
+            if (self._account_cache and self._last_cache_time and 
+                (current_time - self._last_cache_time).seconds < self._cache_duration):
+                print("✅ Using cached account information")
+                return self._account_cache
+            
             print("📊 Fetching account information...")
             account = self.trading_client.get_account()
             info = {
@@ -1118,14 +1230,27 @@ class AITrader:
                 'equity': float(account.equity)
             }
             print(f"✅ Account info: Portfolio value: ${info['portfolio_value']:,.2f}, Cash: ${info['cash']:,.2f}")
+            
+            # Update cache
+            self._account_cache = info
+            self._last_cache_time = current_time
+            
             return info
         except Exception as e:
             print(f"❌ Error getting account info: {e}")
             return {}
     
     def get_portfolio_positions(self) -> Dict:
-        """Get current portfolio positions"""
+        """Get current portfolio positions with caching"""
         try:
+            current_time = datetime.now()
+            
+            # Check cache first
+            if (self._positions_cache and self._last_cache_time and 
+                (current_time - self._last_cache_time).seconds < self._cache_duration):
+                print("✅ Using cached portfolio positions")
+                return self._positions_cache
+            
             print("📈 Fetching portfolio positions...")
             positions = self.trading_client.get_all_positions()
             portfolio = {}
@@ -1140,6 +1265,11 @@ class AITrader:
                 }
             
             print(f"✅ Found {len(portfolio)} active positions")
+            
+            # Update cache
+            self._positions_cache = portfolio
+            self._last_cache_time = current_time
+            
             return portfolio
         except Exception as e:
             print(f"❌ Error getting positions: {e}")
@@ -1173,6 +1303,10 @@ class AITrader:
                     'reason': reason
                 })
                 
+                # Invalidate caches after trade
+                self._account_cache = None
+                self._positions_cache = None
+                
                 print(f"✅ Trade placed successfully: {action} {quantity} {ticker}")
                 return True
             else:
@@ -1184,7 +1318,7 @@ class AITrader:
             return False
     
     def analyze_and_trade(self, max_trades: int = None, min_confidence: int = None):
-        """Main analysis and trading function"""
+        """Main analysis and trading function with memory optimization"""
         print("\n" + "="*60)
         print("🤖 STARTING AI ANALYSIS AND TRADING SESSION")
         print("="*60)
@@ -1202,21 +1336,23 @@ class AITrader:
             'top_decisions': []
         }
         
-        # Get account info
+        # Get account info once and reuse
         account = self.get_account_info()
         if not account:
             print("❌ Could not get account information - stopping session")
             return
         
+        
         session_data['portfolio_value'] = account.get('portfolio_value', 0)
         session_data['available_cash'] = account.get('cash', 0)
         
-        # Get current portfolio positions
+        # Get current portfolio positions once and reuse
         current_positions = self.get_portfolio_positions()
         portfolio_tickers = set(current_positions.keys())
         portfolio_stocks = []
         other_stocks = []
         stocks_to_analyze = []
+        
         if len(current_positions) < 8:
             # Screen for stocks only if we have less than 8 positions
             screened_stocks = self.screener.screen_stocks()
@@ -1244,11 +1380,11 @@ class AITrader:
         
         print(f"\n🔍 Analyzing {len(stocks_to_analyze)} stocks...")
         
-        for stock in stocks_to_analyze:
+        for i, stock in enumerate(stocks_to_analyze):
             ticker = stock['ticker']
             
             try:
-                print(f"\n📊 Analyzing {ticker}...")
+                print(f"\n📊 Analyzing {ticker} ({i+1}/{len(stocks_to_analyze)})...")
                 
                 # Get technical data
                 data = self.analyzer.get_stock_data(ticker)
@@ -1264,9 +1400,12 @@ class AITrader:
                 # AI analysis
                 ai_result = self.analyzer.analyze_stock_with_ai(ticker, indicators, sentiment, news)
                 
-                # Create charts for PDF report
-                price_chart = self.analyzer.pdf_generator.create_price_chart(ticker, data)
-                technical_chart = self.analyzer.pdf_generator.create_technical_indicators_chart(ticker, data, indicators)
+                # Only create charts for top decisions to save memory
+                price_chart = None
+                technical_chart = None
+                if ai_result['confidence'] >= min_confidence:
+                    price_chart = self.analyzer.pdf_generator.create_price_chart(ticker, data)
+                    technical_chart = self.analyzer.pdf_generator.create_technical_indicators_chart(ticker, data, indicators)
                 
                 analysis_results.append({
                     'ticker': ticker,
@@ -1280,6 +1419,10 @@ class AITrader:
                 })
                 
                 session_data['stocks_analyzed'] += 1
+                
+                # Force garbage collection every 5 stocks
+                if (i + 1) % 5 == 0:
+                    gc.collect()
                 
             except Exception as e:
                 print(f"❌ Error analyzing {ticker}: {e}")
@@ -1304,8 +1447,6 @@ class AITrader:
         
         # Execute trades
         trades_made = 0
-        current_positions = self.get_portfolio_positions()
-        session_data['active_positions'] = len(current_positions)
         
         print(f"\n💰 Current positions: {list(current_positions.keys()) if current_positions else 'None'}")
         print(f"💵 Portfolio value: ${account.get('portfolio_value', 0):,.2f}")
@@ -1372,7 +1513,7 @@ class AITrader:
                 else:
                     print(f"  ⏭️ Skipping HOLD: {ticker}")
         
-        # Store trading decisions for PDF report
+        # Store trading decisions for PDF report (only top decisions with charts)
         session_data['trading_decisions'] = [
             {
                 'ticker': result['ticker'],
@@ -1401,6 +1542,12 @@ class AITrader:
                 f"📊 Detailed AI Trading Report - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
             )
         
+        # Clear caches and force garbage collection
+        self.analyzer.clear_caches()
+        self._account_cache = None
+        self._positions_cache = None
+        gc.collect()
+        
         print("="*60)
         print("✅ AI TRADING SESSION COMPLETED")
         print("="*60)
@@ -1408,10 +1555,11 @@ class AITrader:
         return session_data
 
     def get_position_performance(self) -> Dict:
-        """Get detailed performance analysis of current positions"""
+        """Get detailed performance analysis of current positions with caching"""
         try:
-            positions = self.get_portfolio_positions()
-            account = self.get_account_info()
+            # Use cached positions if available
+            positions = self._positions_cache if self._positions_cache else self.get_portfolio_positions()
+            account = self._account_cache if self._account_cache else self.get_account_info()
             
             if not positions or not account:
                 return {}
@@ -1445,7 +1593,7 @@ class AITrader:
                 portfolio_value = account.get('portfolio_value', 0)
                 position_size_pct = (market_value / portfolio_value) * 100 if portfolio_value > 0 else 0
                 
-                # Get historical data for performance analysis
+                # Get historical data for performance analysis (use cached data if available)
                 try:
                     stock_data = self.analyzer.get_stock_data(ticker, period="1mo")
                     if not stock_data.empty:
@@ -1529,7 +1677,7 @@ class AITrader:
             return {}
     
     def generate_position_report(self) -> str:
-        """Generate a detailed position performance report"""
+        """Generate a detailed position performance report with memory optimization"""
         try:
             performance = self.get_position_performance()
             
@@ -1591,7 +1739,7 @@ class AITrader:
             return f"Error generating position report: {str(e)}"
     
     def send_position_update(self, force_update: bool = False):
-        """Send position performance update via Telegram"""
+        """Send position performance update via Telegram with memory optimization"""
         try:
             # Only send if we have positions or if forced
             performance = self.get_position_performance()
@@ -1646,7 +1794,7 @@ class AITrader:
             self.notifier.send_message(f"❌ Error sending position update: {str(e)}")
 
     def request_position_update(self, request_type: str = "summary"):
-        """Handle on-demand position update requests"""
+        """Handle on-demand position update requests with memory optimization"""
         try:
             if request_type.lower() in ["summary", "brief", "quick"]:
                 # Send concise position update
@@ -1709,7 +1857,7 @@ class AITrader:
             self.notifier.send_message(f"❌ Error generating position update: {str(e)}")
     
     def get_position_summary(self) -> str:
-        """Get a quick position summary for internal use"""
+        """Get a quick position summary for internal use with caching"""
         try:
             performance = self.get_position_performance()
             if not performance:
@@ -1723,7 +1871,7 @@ class AITrader:
             return "Error getting position summary"
 
     def create_portfolio_performance_chart(self):
-        """Create a chart showing total unrealized P&L performance over time (USD only)."""
+        """Create a chart showing total unrealized P&L performance over time (USD only) with memory optimization."""
         try:
             positions = self.get_portfolio_positions()
             if not positions:
@@ -1771,15 +1919,15 @@ class AITrader:
             pnl_usd = np.array(pnl_usd)
             portfolio_values_usd = np.array(portfolio_values_usd)
             invested_usd = np.array(invested_usd)
-            fig, ax = plt.subplots(figsize=(12, 6))
+            fig, ax = plt.subplots(figsize=(10, 5))  # Reduced figure size
             ax.plot(dates, pnl_usd, label='Unrealized P&L (USD)', color='blue', linewidth=2)
-            ax.set_ylabel('Unrealized P&L (USD)', fontsize=12)
-            ax.set_title('Portfolio Unrealized P&L in USD (Last 30 Days)', fontsize=14)
+            ax.set_ylabel('Unrealized P&L (USD)', fontsize=10)
+            ax.set_title('Portfolio Unrealized P&L in USD (Last 30 Days)', fontsize=12)
             ax.grid(True, alpha=0.3)
             ax.legend()
             plt.tight_layout()
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')  # Reduced DPI
+            plt.savefig(buffer, format='png', dpi=80, bbox_inches='tight', facecolor='white')  # Further reduced DPI
             buffer.seek(0)
             plt.close(fig)  # Explicitly close figure
             gc.collect()  # Force garbage collection
@@ -1791,7 +1939,7 @@ class AITrader:
             return None
 
     def create_per_stock_performance_charts(self):
-        """Create a dict of {ticker: buffer} for each active position, showing value in USD over last month."""
+        """Create a dict of {ticker: buffer} for each active position, showing value in USD over last month with memory optimization."""
         try:
             positions = self.get_portfolio_positions()
             if not positions:
@@ -1815,15 +1963,15 @@ class AITrader:
                     import numpy as np
                     dates = np.array(dates)
                     values_usd = np.array(values_usd)
-                    fig, ax = plt.subplots(figsize=(8, 3))
-                    ax.plot(dates, values_usd, label=f'{ticker} Value (USD)', color='green', linewidth=2)
-                    ax.set_ylabel('Value (USD)', fontsize=10)
-                    ax.set_title(f'{ticker} Position Value in USD (Last 30 Days)', fontsize=11)
+                    fig, ax = plt.subplots(figsize=(6, 2))  # Further reduced figure size
+                    ax.plot(dates, values_usd, label=f'{ticker} Value (USD)', color='green', linewidth=1.5)
+                    ax.set_ylabel('Value (USD)', fontsize=8)
+                    ax.set_title(f'{ticker} Position Value in USD (Last 30 Days)', fontsize=9)
                     ax.grid(True, alpha=0.3)
                     ax.legend()
                     plt.tight_layout()
                     buffer = io.BytesIO()
-                    plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')  # Reduced DPI
+                    plt.savefig(buffer, format='png', dpi=80, bbox_inches='tight', facecolor='white')  # Further reduced DPI
                     buffer.seek(0)
                     plt.close(fig)  # Explicitly close figure
                     gc.collect()  # Force garbage collection
@@ -1839,7 +1987,7 @@ class AITrader:
             return {}
 
     def generate_position_report_pdf(self):
-        """Generate a PDF with the current portfolio performance summary and details, using USD charts only."""
+        """Generate a PDF with the current portfolio performance summary and details, using USD charts only with memory optimization."""
         try:
             performance = self.get_position_performance()
             if not performance:
@@ -1853,8 +2001,8 @@ class AITrader:
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=A4)
             styles = getSampleStyleSheet()
-            title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=20)
-            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Heading2'], fontSize=14, spaceAfter=10)
+            title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, spaceAfter=20)
+            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Heading2'], fontSize=12, spaceAfter=10)
             story = []
             story.append(Paragraph("Portfolio Performance Report", title_style))
             story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
@@ -1863,7 +2011,7 @@ class AITrader:
             chart_buffer = self.create_portfolio_performance_chart()
             if chart_buffer:
                 story.append(Paragraph("Portfolio Unrealized P&L in USD (Last 30 Days)", subtitle_style))
-                story.append(Image(chart_buffer, width=6*inch, height=3*inch))
+                story.append(Image(chart_buffer, width=5*inch, height=2.5*inch))  # Reduced size
                 story.append(Spacer(1, 12))
             # Portfolio Summary
             summary = performance['portfolio_summary']
@@ -1926,7 +2074,7 @@ class AITrader:
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),  # Reduced font size
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
@@ -1939,7 +2087,7 @@ class AITrader:
                 story.append(Paragraph("Per-Stock Position Value in USD (Last 30 Days):", subtitle_style))
                 for ticker, buf in charts.items():
                     story.append(Paragraph(f"{ticker}", styles['Heading3']))
-                    story.append(Image(buf, width=5*inch, height=2*inch))
+                    story.append(Image(buf, width=4*inch, height=1.5*inch))  # Further reduced size
                     story.append(Spacer(1, 8))
             doc.build(story)
             buffer.seek(0)
