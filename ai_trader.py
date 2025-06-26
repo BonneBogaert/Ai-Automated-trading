@@ -26,6 +26,7 @@ import io
 import matplotlib.font_manager as fm
 import random
 import os
+import gc  # Add garbage collection
 
 # Import all configuration dictionaries from config.py
 from config import (
@@ -41,10 +42,12 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Configure fonts
+# Configure fonts and memory optimization
 plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
 plt.rcParams['font.size'] = 10
+plt.rcParams['figure.max_open_warning'] = 10  # Limit open figures
+plt.rcParams['figure.dpi'] = 100  # Reduce DPI for memory savings
 
 class PDFReportGenerator:
     """Generate detailed PDF reports with charts and analysis"""
@@ -74,8 +77,8 @@ class PDFReportGenerator:
                 return None
 
             # Simple approach - just plot the data
-            plt.figure(figsize=(10, 6))
-            plt.plot(data.index, data['Close'], label='Close Price', linewidth=2)
+            plt.figure(figsize=(8, 4))  # Reduced figure size
+            plt.plot(data.index, data['Close'], label='Close Price', linewidth=1.5)
             plt.title(f'{ticker} Price Chart')
             plt.xlabel('Date')
             plt.ylabel('Price ($)')
@@ -85,14 +88,17 @@ class PDFReportGenerator:
             plt.tight_layout()
             
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')  # Reduced DPI
             buffer.seek(0)
-            plt.close()
+            plt.close()  # Explicitly close figure
+            gc.collect()  # Force garbage collection
             print(f"✅ Price chart created successfully for {ticker}")
             return buffer
         except Exception as e:
             print(f"❌ Error creating price chart for {ticker}: {e}")
             logging.error(f"Error creating price chart for {ticker}: {e}")
+            plt.close('all')  # Close all figures on error
+            gc.collect()
             return None
     
     def create_technical_indicators_chart(self, ticker: str, data: pd.DataFrame, indicators: Dict) -> str:
@@ -114,8 +120,8 @@ class PDFReportGenerator:
             plt.style.use('seaborn-v0_8')
             
             # Create comprehensive technical analysis chart
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(18, 14))
-            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=20, fontweight='bold', y=0.98)
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))  # Reduced figure size
+            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=16, fontweight='bold', y=0.98)
             
             # Color scheme
             colors = {
@@ -298,12 +304,15 @@ class PDFReportGenerator:
                     fontsize=10, ha='right', va='bottom', alpha=0.7)
             
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', facecolor='white')
+            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', facecolor='white')  # Reduced DPI
             buffer.seek(0)
-            plt.close()
+            plt.close(fig)  # Explicitly close figure
+            gc.collect()  # Force garbage collection
             return buffer
         except Exception as e:
             logging.error(f"Error creating technical indicators chart for {ticker}: {e}")
+            plt.close('all')  # Close all figures on error
+            gc.collect()
             return None
     
     def generate_trading_report(self, trading_session: Dict, analyzer=None) -> str:
@@ -464,12 +473,15 @@ class PDFReportGenerator:
                     logging.error(f"Error plotting MACD for {ticker}: {e}")
             plt.tight_layout(rect=[0, 0, 1, 0.96])
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', facecolor='white')
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')  # Reduced DPI
             buffer.seek(0)
-            plt.close()
+            plt.close(fig)  # Explicitly close figure
+            gc.collect()  # Force garbage collection
             return buffer, n_graphs
         except Exception as e:
             logging.error(f"Error creating full stock analysis figure for {ticker}: {e}")
+            plt.close('all')  # Close all figures on error
+            gc.collect()
             return None, 0
     
     def create_decision_matrix_chart(self, decisions: List[Dict], analyzer=None) -> str:
@@ -1767,12 +1779,15 @@ class AITrader:
             ax.legend()
             plt.tight_layout()
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', facecolor='white')
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')  # Reduced DPI
             buffer.seek(0)
-            plt.close()
+            plt.close(fig)  # Explicitly close figure
+            gc.collect()  # Force garbage collection
             return buffer
         except Exception as e:
             logging.error(f"Error creating USD portfolio performance chart: {e}")
+            plt.close('all')  # Close all figures on error
+            gc.collect()
             return None
 
     def create_per_stock_performance_charts(self):
@@ -1808,12 +1823,15 @@ class AITrader:
                     ax.legend()
                     plt.tight_layout()
                     buffer = io.BytesIO()
-                    plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                    plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')  # Reduced DPI
                     buffer.seek(0)
-                    plt.close()
+                    plt.close(fig)  # Explicitly close figure
+                    gc.collect()  # Force garbage collection
                     charts[ticker] = buffer
                 except Exception as e:
                     logging.error(f"Error creating per-stock USD chart for {ticker}: {e}")
+                    plt.close('all')  # Close all figures on error
+                    gc.collect()
                     continue
             return charts
         except Exception as e:

@@ -11,7 +11,7 @@ import logging
 
 def is_market_hours() -> bool:
     """Check if current time is during market hours (9:30 AM - 4:00 PM ET, Mon-Fri)"""
-    now = datetime.utcnow()
+    now = datetime.now(datetime.UTC)
     
     # Convert UTC to ET (UTC-5 for EST, UTC-4 for EDT)
     # For simplicity, we'll use UTC-5 (EST) - you may want to adjust for daylight savings
@@ -29,7 +29,7 @@ def is_market_hours() -> bool:
 
 def is_end_of_trading_day() -> bool:
     """Check if this is the last trading session of the day (around 4:00 PM ET)"""
-    now = datetime.utcnow()
+    now = datetime.now(datetime.UTC)
     et_time = now - timedelta(hours=5)
     
     # Check if it's between 3:30 PM and 4:30 PM ET (end of trading day)
@@ -55,7 +55,7 @@ def main():
         trader = AITrader()
         
         # Get current time info
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         et_time = now - timedelta(hours=5)
         
         logging.info(f"📅 Trading Session: {et_time.strftime('%Y-%m-%d %H:%M:%S')} ET")
