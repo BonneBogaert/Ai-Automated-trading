@@ -970,10 +970,11 @@ class StockScreener:
 class TelegramNotifier:
     """Send notifications via Telegram"""
     
-    def __init__(self, token: str, chat_id: str):
+    def __init__(self, token: str, chat_id: str, trader=None):
         self.token = token
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{token}"
+        self.trader = trader
     
     def send_message(self, message: str):
         """Send a message to Telegram"""
@@ -1084,7 +1085,7 @@ class AITrader:
         self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
         self.analyzer = StockAnalyzer(self.openai_client)
         self.screener = StockScreener()
-        self.notifier = TelegramNotifier(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
+        self.notifier = TelegramNotifier(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, trader=self)
         
         # Initialize Alpaca with new SDK
         self.trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
@@ -1706,14 +1707,12 @@ class AITrader:
             return "Error getting position summary"
 
     def create_portfolio_performance_chart(self):
-        """Create a chart showing total unrealized P&L performance over time"""
+        """Create a chart showing total unrealized P&L performance over time (USD only)."""
         try:
             positions = self.get_portfolio_positions()
             if not positions:
                 return None
-            
-            # Get historical data for all positions - use 1 month instead of 3 months
-            # since the user only started trading recently
+            # Get historical data for all positions (last month)
             portfolio_data = {}
             for ticker in positions.keys():
                 try:
@@ -1723,91 +1722,103 @@ class AITrader:
                 except Exception as e:
                     logging.error(f"Error fetching data for {ticker}: {e}")
                     continue
-            
             if not portfolio_data:
                 return None
-            
-            # Calculate daily portfolio performance
+            account = self.get_account_info()
+            cash_usd = account.get('cash', 0)
             dates = list(portfolio_data.values())[0].index
-            daily_pnl = []
-            daily_pnl_pct = []
-            
+            portfolio_values_usd = []
+            invested_usd = []
             for date in dates:
+                total_value = 0
                 total_invested = 0
-                total_current_value = 0
-                
                 for ticker, position in positions.items():
                     if ticker in portfolio_data:
                         data = portfolio_data[ticker]
                         if date in data.index:
                             quantity = position['quantity']
                             avg_price = position['avg_price']
-                            current_price = data.loc[date, 'Close']
-                            # Fix for single element Series
-                            if isinstance(current_price, pd.Series):
-                                current_price = float(current_price.iloc[0])
+                            close_price = data.loc[date, 'Close']
+                            if isinstance(close_price, pd.Series):
+                                close_price = float(close_price.iloc[0])
                             else:
-                                current_price = float(current_price)
-                            invested = quantity * avg_price
-                            current_value = quantity * current_price
-                            total_invested += invested
-                            total_current_value += current_value
-                
-                if total_invested > 0:
-                    pnl = total_current_value - total_invested
-                    pnl_pct = (pnl / total_invested) * 100
-                    daily_pnl.append(pnl)
-                    daily_pnl_pct.append(pnl_pct)
-                else:
-                    daily_pnl.append(0)
-                    daily_pnl_pct.append(0)
-            
-            # Ensure all arrays are 1D numpy arrays for plotting
+                                close_price = float(close_price)
+                            total_value += quantity * close_price
+                            total_invested += quantity * avg_price
+                total_value += cash_usd
+                portfolio_values_usd.append(total_value)
+                invested_usd.append(total_invested)
+            pnl_usd = [v - i for v, i in zip(portfolio_values_usd, invested_usd)]
+            import matplotlib.pyplot as plt
+            import numpy as np
             dates = np.array(dates)
-            daily_pnl = np.array(daily_pnl).flatten()
-            daily_pnl_pct = np.array(daily_pnl_pct).flatten()
-            
-            # Create the chart
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-            fig.suptitle('Portfolio Performance Over Time (Last 30 Days)', fontsize=16, fontweight='bold')
-            
-            # Currency P&L chart
-            ax1.plot(dates, daily_pnl, linewidth=2, color='blue', alpha=0.8)
-            ax1.axhline(y=0, color='red', linestyle='--', alpha=0.5)
-            ax1.fill_between(dates, daily_pnl, 0, where=(daily_pnl >= 0), 
-                           color='green', alpha=0.3, label='Profit')
-            ax1.fill_between(dates, daily_pnl, 0, where=(daily_pnl < 0), 
-                           color='red', alpha=0.3, label='Loss')
-            ax1.set_ylabel('Unrealized P&L ($)', fontsize=12)
-            ax1.set_title('Total Unrealized P&L (Currency)', fontsize=14)
-            ax1.grid(True, alpha=0.3)
-            ax1.legend()
-            
-            # Percentage P&L chart
-            ax2.plot(dates, daily_pnl_pct, linewidth=2, color='purple', alpha=0.8)
-            ax2.axhline(y=0, color='red', linestyle='--', alpha=0.5)
-            ax2.fill_between(dates, daily_pnl_pct, 0, where=(daily_pnl_pct >= 0), 
-                           color='green', alpha=0.3, label='Profit %')
-            ax2.fill_between(dates, daily_pnl_pct, 0, where=(daily_pnl_pct < 0), 
-                           color='red', alpha=0.3, label='Loss %')
-            ax2.set_ylabel('Unrealized P&L (%)', fontsize=12)
-            ax2.set_title('Total Unrealized P&L (Percentage)', fontsize=14)
-            ax2.grid(True, alpha=0.3)
-            ax2.legend()
-            
+            pnl_usd = np.array(pnl_usd)
+            portfolio_values_usd = np.array(portfolio_values_usd)
+            invested_usd = np.array(invested_usd)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(dates, pnl_usd, label='Unrealized P&L (USD)', color='blue', linewidth=2)
+            ax.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+            ax.set_ylabel('Unrealized P&L (USD)', fontsize=12)
+            ax.set_title('Portfolio Unrealized P&L in USD (Last 30 Days)', fontsize=14)
+            ax.grid(True, alpha=0.3)
+            ax.legend()
             plt.tight_layout()
             buffer = io.BytesIO()
             plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', facecolor='white')
             buffer.seek(0)
             plt.close()
             return buffer
-            
         except Exception as e:
-            logging.error(f"Error creating portfolio performance chart: {e}")
+            logging.error(f"Error creating USD portfolio performance chart: {e}")
             return None
 
+    def create_per_stock_performance_charts(self):
+        """Create a dict of {ticker: buffer} for each active position, showing value in USD over last month."""
+        try:
+            positions = self.get_portfolio_positions()
+            if not positions:
+                return {}
+            charts = {}
+            for ticker, position in positions.items():
+                try:
+                    data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True)
+                    if data.empty:
+                        continue
+                    values_usd = []
+                    dates = data.index
+                    for date in dates:
+                        close_price = data.loc[date, 'Close']
+                        if isinstance(close_price, pd.Series):
+                            close_price = float(close_price.iloc[0])
+                        else:
+                            close_price = float(close_price)
+                        values_usd.append(position['quantity'] * close_price)
+                    import matplotlib.pyplot as plt
+                    import numpy as np
+                    dates = np.array(dates)
+                    values_usd = np.array(values_usd)
+                    fig, ax = plt.subplots(figsize=(8, 3))
+                    ax.plot(dates, values_usd, label=f'{ticker} Value (USD)', color='green', linewidth=2)
+                    ax.set_ylabel('Value (USD)', fontsize=10)
+                    ax.set_title(f'{ticker} Position Value in USD (Last 30 Days)', fontsize=11)
+                    ax.grid(True, alpha=0.3)
+                    ax.legend()
+                    plt.tight_layout()
+                    buffer = io.BytesIO()
+                    plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight', facecolor='white')
+                    buffer.seek(0)
+                    plt.close()
+                    charts[ticker] = buffer
+                except Exception as e:
+                    logging.error(f"Error creating per-stock USD chart for {ticker}: {e}")
+                    continue
+            return charts
+        except Exception as e:
+            logging.error(f"Error creating per-stock USD charts: {e}")
+            return {}
+
     def generate_position_report_pdf(self):
-        """Generate a PDF with the current portfolio performance summary and details."""
+        """Generate a PDF with the current portfolio performance summary and details, using USD charts only."""
         try:
             performance = self.get_position_performance()
             if not performance:
@@ -1827,14 +1838,12 @@ class AITrader:
             story.append(Paragraph("Portfolio Performance Report", title_style))
             story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
             story.append(Spacer(1, 12))
-            
-            # Portfolio Performance Chart
+            # Portfolio Performance Chart (USD)
             chart_buffer = self.create_portfolio_performance_chart()
             if chart_buffer:
-                story.append(Paragraph("Portfolio Performance Over Time", subtitle_style))
-                story.append(Image(chart_buffer, width=6*inch, height=4*inch))
+                story.append(Paragraph("Portfolio Unrealized P&L in USD (Last 30 Days)", subtitle_style))
+                story.append(Image(chart_buffer, width=6*inch, height=3*inch))
                 story.append(Spacer(1, 12))
-            
             # Portfolio Summary
             summary = performance['portfolio_summary']
             summary_data = [
@@ -1858,7 +1867,6 @@ class AITrader:
             ]))
             story.append(table)
             story.append(Spacer(1, 16))
-            
             # Best and Worst Performers
             if performance['best_performer']:
                 best = performance['positions'][performance['best_performer']]
@@ -1872,7 +1880,6 @@ class AITrader:
                 story.append(Paragraph(f"Unrealized P&L: ${worst['unrealized_pl']:,.2f} ({worst['unrealized_pl_pct']:+.2f}%)", styles['Normal']))
                 story.append(Paragraph(f"1-Week: {worst['performance_1w']:+.2f}% | 1-Month: {worst['performance_1m']:+.2f}% | Volatility: {worst['volatility']:.1f}%", styles['Normal']))
                 story.append(Spacer(1, 8))
-            
             # Individual Position Details with Total Invested vs Current Worth
             story.append(Paragraph("Position Details:", subtitle_style))
             pos_data = [["Ticker", "Qty", "Avg Price", "Current Price", "Total Invested", "Current Worth", "Unrealized P&L", "% of Portfolio", "1W %", "1M %", "Volatility"]]
@@ -1905,6 +1912,14 @@ class AITrader:
             ]))
             story.append(pos_table)
             story.append(Spacer(1, 12))
+            # Per-stock USD charts
+            charts = self.create_per_stock_performance_charts()
+            if charts:
+                story.append(Paragraph("Per-Stock Position Value in USD (Last 30 Days):", subtitle_style))
+                for ticker, buf in charts.items():
+                    story.append(Paragraph(f"{ticker}", styles['Heading3']))
+                    story.append(Image(buf, width=5*inch, height=2*inch))
+                    story.append(Spacer(1, 8))
             doc.build(story)
             buffer.seek(0)
             return buffer
