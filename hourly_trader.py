@@ -7,7 +7,7 @@ Runs every hour during market hours and generates daily reports.
 import os
 import sys
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import gc
 
@@ -41,7 +41,7 @@ def log_memory(message=""):
 
 def is_market_hours() -> bool:
     """Check if current time is during market hours (9:30 AM - 4:00 PM ET, Mon-Fri)"""
-    now = datetime.now(datetime.UTC)
+    now = datetime.now(timezone.utc)
     
     # Convert UTC to ET (UTC-5 for EST, UTC-4 for EDT)
     # For simplicity, we'll use UTC-5 (EST) - you may want to adjust for daylight savings
@@ -59,7 +59,7 @@ def is_market_hours() -> bool:
 
 def is_end_of_trading_day() -> bool:
     """Check if this is the last trading session of the day (around 4:00 PM ET)"""
-    now = datetime.now(datetime.UTC)
+    now = datetime.now(timezone.utc)
     et_time = now - timedelta(hours=5)
     
     # Check if it's between 3:30 PM and 4:30 PM ET (end of trading day)
@@ -89,7 +89,7 @@ def main():
         log_memory("After initializing AITrader")
         
         # Get current time info
-        now = datetime.now(datetime.UTC)
+        now = datetime.now(timezone.utc)
         et_time = now - timedelta(hours=5)
         
         logging.info(f"📅 Trading Session: {et_time.strftime('%Y-%m-%d %H:%M:%S')} ET")
@@ -201,11 +201,14 @@ def main():
         
         # Memory summary
         memory_diff = final_memory - initial_memory
-        summary_msg = f"📊 Memory Summary: Initial: {initial_memory:.1f}MB, Final: {final_memory:.1f}MB, Difference: {memory_diff:.1f}MB"
-        logging.info(summary_msg)
-        print(summary_msg)
+        logging.info(f"📊 Memory Summary: Initial: {initial_memory:.1f}MB, Final: {final_memory:.1f}MB, Difference: {memory_diff:.1f}MB")
         
-        logging.info("🎉 Hourly trading session completed successfully!")
+        if final_memory > 512:
+            logging.error(f"❌ CRITICAL: Final memory ({final_memory:.1f}MB) exceeds Render limit!")
+            return 1
+        
+        logging.info("✅ Hourly trading session completed successfully!")
+        return 0
         
     except Exception as e:
         logging.error(f"❌ Error in hourly trading session: {e}")
@@ -219,5 +222,15 @@ def main():
         return 1
 
 if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Run the main function
     exit_code = main()
-    sys.exit(exit_code if exit_code else 0) 
+    sys.exit(exit_code) 
