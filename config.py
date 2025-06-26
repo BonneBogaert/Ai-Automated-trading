@@ -2,28 +2,28 @@
 
 # Trading Parameters
 TRADING_CONFIG = {
-    'max_trades_per_session': 5,      # Maximum number of trades per analysis session
+    'max_trades_per_session': 10,      # Maximum number of trades per analysis session
     'min_confidence_score': 7,        # Minimum AI confidence score to execute trades
-    'position_size_pct': 0.02,        # Percentage of portfolio per trade (2%)
+    'position_size_pct': 0.05,        # Percentage of portfolio per trade (2%)
     'max_position_size': 1000,        # Maximum dollar amount per position
     'min_stock_price': 5.0,           # Minimum stock price to consider
-    'max_stock_price': 1000.0,        # Maximum stock price to consider
-    'min_market_cap': 1e9,            # Minimum market cap ($1B)
+    'max_stock_price': 2000.0,        # Maximum stock price to consider
+    'min_market_cap': 5e8,            # Minimum market cap ($500M)
     'min_volume_ratio': 0.5,          # Minimum volume ratio compared to average
 }
 
 # Risk Management
 RISK_CONFIG = {
     'max_portfolio_risk': 0.05,       # Maximum 5% portfolio risk per trade
-    'stop_loss_pct': 0.10,            # 10% stop loss
-    'take_profit_pct': 0.20,          # 20% take profit
-    'max_drawdown': 0.15,             # Maximum 15% drawdown before stopping
+    'stop_loss_pct': 0.15,            # 10% stop loss
+    'take_profit_pct': 0.30,          # 20% take profit
+    'max_drawdown': 0.25,             # Maximum 15% drawdown before stopping
 }
 
 # AI Analysis Settings
 AI_CONFIG = {
     'model': 'gpt-4',                 # OpenAI model to use
-    'temperature': 0.3,               # AI response randomness (0-1)
+    'temperature': 0.5,               # AI response randomness (0-1)
     'max_tokens': 500,                # Maximum tokens for AI response
     'analysis_period': '6mo',         # Data period for analysis
     'news_lookback_days': 7,          # Days of news to analyze

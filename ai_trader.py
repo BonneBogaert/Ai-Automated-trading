@@ -13,19 +13,19 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-import time
 import json
 from typing import List, Dict, Tuple
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import io
-import base64
+import matplotlib.font_manager as fm
+import random
 
 # Load environment variables
 load_dotenv()
@@ -38,15 +38,10 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Setup logging with more detailed output
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('ai_trader.log'),
-        logging.StreamHandler()
-    ]
-)
+# Configure fonts
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
+plt.rcParams['font.size'] = 10
 
 class PDFReportGenerator:
     """Generate detailed PDF reports with charts and analysis"""
@@ -98,55 +93,225 @@ class PDFReportGenerator:
             return None
     
     def create_technical_indicators_chart(self, ticker: str, data: pd.DataFrame, indicators: Dict) -> str:
-        """Create simple technical indicators chart"""
+        """Create comprehensive technical indicators chart with enhanced visuals"""
         try:
             if data.empty:
-                print(f"⚠️ No data available for {ticker} technical chart")
                 return None
+
+            # Handle MultiIndex columns
+            if isinstance(data.columns, pd.MultiIndex):
+                ticker_name = data.columns.get_level_values(1)[0]
+                close_data = data[('Close', ticker_name)]
+                volume_data = data[('Volume', ticker_name)]
+            else:
+                close_data = data['Close']
+                volume_data = data['Volume']
+
+            # Set style for better visuals
+            plt.style.use('seaborn-v0_8')
             
-            # Simple approach - just plot price and volume
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+            # Create comprehensive technical analysis chart
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(18, 14))
+            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=20, fontweight='bold', y=0.98)
             
-            ax1.plot(data.index, data['Close'], label='Close Price', linewidth=2)
-            ax1.set_ylabel('Price ($)')
-            ax1.legend()
+            # Color scheme
+            colors = {
+                'price': '#1f77b4',
+                'sma20': '#ff7f0e',
+                'sma50': '#d62728',
+                'volume': '#2ca02c',
+                'rsi': '#9467bd',
+                'macd': '#8c564b',
+                'signal': '#e377c2',
+                'histogram': '#7f7f7f',
+                'overbought': '#ff4444',
+                'oversold': '#44ff44',
+                'neutral': '#ffaa00'
+            }
+            
+            # Price chart with moving averages and decision clues
+            ax1.plot(data.index, close_data, label='Close Price', linewidth=2.5, color=colors['price'], alpha=0.9)
+            
+            # Add moving averages if available
+            if 'sma_20' in indicators and 'sma_50' in indicators:
+                sma_20_series = close_data.rolling(window=20).mean()
+                sma_50_series = close_data.rolling(window=50).mean()
+                
+                ax1.plot(data.index, sma_20_series, label='SMA 20', linewidth=2, color=colors['sma20'], alpha=0.8)
+                ax1.plot(data.index, sma_50_series, label='SMA 50', linewidth=2, color=colors['sma50'], alpha=0.8)
+                
+                # Add decision clues based on moving average crossovers
+                current_price = close_data.iloc[-1]
+                sma_20_current = sma_20_series.iloc[-1]
+                sma_50_current = sma_50_series.iloc[-1]
+                
+                # Add markers for key levels
+                ax1.axhline(y=sma_20_current, color=colors['sma20'], linestyle='--', alpha=0.6, label=f'SMA 20: ${sma_20_current:.2f}')
+                ax1.axhline(y=sma_50_current, color=colors['sma50'], linestyle='--', alpha=0.6, label=f'SMA 50: ${sma_50_current:.2f}')
+                
+                # Add decision annotation
+                if current_price > sma_20_current > sma_50_current:
+                    decision_text = "G BULLISH: Price > SMA20 > SMA50"
+                    decision_color = colors['neutral']
+                elif current_price < sma_20_current < sma_50_current:
+                    decision_text = "R BEARISH: Price < SMA20 < SMA50"
+                    decision_color = colors['overbought']
+                else:
+                    decision_text = "Y MIXED: Mixed signals"
+                    decision_color = colors['neutral']
+                
+                # Try to use emoji, fallback to text if font doesn't support it
+                ax1.text(0.02, 0.98, decision_text, transform=ax1.transAxes, fontsize=12, fontname='DejaVu Sans',
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor=decision_color, alpha=0.7),
+                        verticalalignment='top')
+            
+            # Add Bollinger Bands if available
+            if 'bb_upper' in indicators and 'bb_lower' in indicators:
+                bb_upper_series = close_data.rolling(window=20).mean() + (close_data.rolling(window=20).std() * 2)
+                bb_lower_series = close_data.rolling(window=20).mean() - (close_data.rolling(window=20).std() * 2)
+                
+                ax1.fill_between(data.index, bb_upper_series, bb_lower_series, alpha=0.1, color='gray', label='Bollinger Bands')
+                ax1.plot(data.index, bb_upper_series, color='gray', linestyle=':', alpha=0.7, linewidth=1)
+                ax1.plot(data.index, bb_lower_series, color='gray', linestyle=':', alpha=0.7, linewidth=1)
+            
+            ax1.set_title(f'{ticker} Price Chart with Technical Indicators', fontsize=14, fontweight='bold')
+            ax1.set_ylabel('Price ($)', fontsize=12)
+            ax1.legend(loc='upper left', fontsize=10)
             ax1.grid(True, alpha=0.3)
             
-            ax2.bar(data.index, data['Volume'], alpha=0.7, label='Volume')
-            ax2.set_ylabel('Volume')
-            ax2.legend()
-            ax2.grid(True, alpha=0.3)
+            # Add current price annotation
+            ax1.annotate(f'${current_price:.2f}', xy=(data.index[-1], current_price), 
+                        xytext=(10, 10), textcoords='offset points',
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor='yellow', alpha=0.7),
+                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+            # Volume chart with enhanced styling
+            volume_colors = ['green' if close_data.iloc[i] >= close_data.iloc[i-1] else 'red' 
+                           for i in range(1, len(close_data))]
+            volume_colors.insert(0, 'green')  # First bar
             
-            fig.suptitle(f'{ticker} Technical Indicators')
-            ax2.set_xlabel('Date')
-            plt.xticks(rotation=45)
+            ax2.bar(data.index, volume_data, alpha=0.7, color=volume_colors, label='Volume')
+            
+            # Add volume moving average
+            volume_sma = volume_data.rolling(window=20).mean()
+            ax2.plot(data.index, volume_sma, color='blue', linewidth=2, label='Volume SMA (20)', alpha=0.8)
+            
+            ax2.set_title(f'{ticker} Volume Analysis', fontsize=14, fontweight='bold')
+            ax2.set_ylabel('Volume', fontsize=12)
+            ax2.legend(loc='upper left', fontsize=10)
+            ax2.grid(True, alpha=0.3)
+
+            # RSI chart with enhanced styling
+            if 'rsi' in indicators:
+                delta = close_data.diff()
+                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                rs = gain / loss
+                rsi_series = 100 - (100 / (1 + rs))
+                
+                ax3.plot(data.index, rsi_series, label='RSI (14)', linewidth=2.5, color=colors['rsi'])
+                
+                # Add overbought/oversold zones with fill
+                ax3.fill_between(data.index, 70, 100, alpha=0.2, color=colors['overbought'], label='Overbought Zone')
+                ax3.fill_between(data.index, 0, 30, alpha=0.2, color=colors['oversold'], label='Oversold Zone')
+                
+                ax3.axhline(y=70, color=colors['overbought'], linestyle='--', alpha=0.8, linewidth=2, label='Overbought (70)')
+                ax3.axhline(y=30, color=colors['oversold'], linestyle='--', alpha=0.8, linewidth=2, label='Oversold (30)')
+                ax3.axhline(y=50, color='gray', linestyle='-', alpha=0.5, linewidth=1, label='Neutral (50)')
+                
+                # Add RSI decision annotation
+                current_rsi = rsi_series.iloc[-1]
+                if current_rsi > 70:
+                    rsi_decision = "R OVERBOUGHT: Consider selling"
+                    rsi_color = colors['overbought']
+                elif current_rsi < 30:
+                    rsi_decision = "G OVERSOLD: Consider buying"
+                    rsi_color = colors['oversold']
+                else:
+                    rsi_decision = "Y NEUTRAL: No extreme signals"
+                    rsi_color = colors['neutral']
+                
+                ax3.text(0.02, 0.98, f"{rsi_decision}\nRSI: {current_rsi:.1f}", 
+                        transform=ax3.transAxes, fontsize=11, fontname='DejaVu Sans',
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor=rsi_color, alpha=0.7),
+                        verticalalignment='top')
+                
+                ax3.set_title(f'{ticker} RSI (14) Momentum Indicator', fontsize=14, fontweight='bold')
+                ax3.set_ylabel('RSI', fontsize=12)
+                ax3.set_ylim(0, 100)
+                ax3.legend(loc='upper left', fontsize=10)
+                ax3.grid(True, alpha=0.3)
+
+            # MACD chart with enhanced styling
+            if 'macd' in indicators:
+                ema_12_series = close_data.ewm(span=12).mean()
+                ema_26_series = close_data.ewm(span=26).mean()
+                macd_series = ema_12_series - ema_26_series
+                signal_series = macd_series.ewm(span=9).mean()
+                histogram = macd_series - signal_series
+                
+                # Color histogram based on MACD vs Signal
+                histogram_colors = ['green' if h >= 0 else 'red' for h in histogram]
+                
+                ax4.plot(data.index, macd_series, label='MACD', linewidth=2.5, color=colors['macd'])
+                ax4.plot(data.index, signal_series, label='Signal', linewidth=2.5, color=colors['signal'])
+                ax4.bar(data.index, histogram, alpha=0.6, color=histogram_colors, label='Histogram', width=0.8)
+                
+                # Add zero line
+                ax4.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
+                
+                # Add MACD decision annotation
+                current_macd = macd_series.iloc[-1]
+                current_signal = signal_series.iloc[-1]
+                
+                if current_macd > current_signal and current_macd > 0:
+                    macd_decision = "G BULLISH: MACD > Signal > 0"
+                    macd_color = colors['oversold']
+                elif current_macd < current_signal and current_macd < 0:
+                    macd_decision = "R BEARISH: MACD < Signal < 0"
+                    macd_color = colors['overbought']
+                elif current_macd > current_signal:
+                    macd_decision = "Y WEAK: MACD > Signal"
+                    macd_color = colors['neutral']
+                else:
+                    macd_decision = "Y WEAK: MACD < Signal"
+                    macd_color = colors['neutral']
+                
+                ax4.text(0.02, 0.98, f"{macd_decision}\nMACD: {current_macd:.4f}", 
+                        transform=ax4.transAxes, fontsize=11, fontname='DejaVu Sans',
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor=macd_color, alpha=0.7),
+                        verticalalignment='top')
+                
+                ax4.set_title(f'{ticker} MACD Trend Indicator', fontsize=14, fontweight='bold')
+                ax4.set_ylabel('MACD', fontsize=12)
+                ax4.legend(loc='upper left', fontsize=10)
+                ax4.grid(True, alpha=0.3)
+
+            # Overall styling
             plt.tight_layout()
             
+            # Add timestamp
+            fig.text(0.99, 0.01, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 
+                    fontsize=10, ha='right', va='bottom', alpha=0.7)
+            
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight')
+            plt.savefig(buffer, format='png', dpi=300, bbox_inches='tight', facecolor='white')
             buffer.seek(0)
             plt.close()
-            print(f"✅ Technical indicators chart created successfully for {ticker}")
             return buffer
         except Exception as e:
-            print(f"❌ Error creating technical indicators chart for {ticker}: {e}")
             logging.error(f"Error creating technical indicators chart for {ticker}: {e}")
             return None
     
-    def generate_trading_report(self, trading_session: Dict) -> str:
-        """Generate comprehensive PDF trading report"""
+    def generate_trading_report(self, trading_session: Dict, analyzer=None) -> str:
+        """Generate comprehensive PDF trading report with vertical stack layout per stock"""
         try:
-            # Create PDF document
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(buffer, pagesize=A4)
             story = []
-            
-            # Title
             story.append(Paragraph("AI Trading System Report", self.title_style))
             story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", self.styles['Normal']))
             story.append(Spacer(1, 20))
-            
-            # Session Summary
             story.append(Paragraph("Session Summary", self.subtitle_style))
             summary_data = [
                 ['Metric', 'Value'],
@@ -157,7 +322,6 @@ class PDFReportGenerator:
                 ['Total Portfolio Value', f"${trading_session.get('portfolio_value', 0):,.2f}"],
                 ['Available Cash', f"${trading_session.get('available_cash', 0):,.2f}"],
             ]
-            
             summary_table = Table(summary_data)
             summary_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -171,35 +335,277 @@ class PDFReportGenerator:
             ]))
             story.append(summary_table)
             story.append(Spacer(1, 20))
-            
-            # Trading Decisions
+            # For each trading decision, add a section with header and vertical stack of graphs
             if trading_session.get('trading_decisions'):
-                story.append(Paragraph("Trading Decisions", self.subtitle_style))
-                
+                story.append(Paragraph("Trading Decisions & Technical Analysis", self.subtitle_style))
                 for decision in trading_session['trading_decisions']:
-                    story.append(Paragraph(f"<b>{decision['ticker']}</b> - {decision['action']}", self.styles['Heading3']))
-                    story.append(Paragraph(f"Confidence: {decision['confidence']}/10", self.styles['Normal']))
-                    story.append(Paragraph(f"Reasoning: {decision['reasoning']}", self.styles['Normal']))
+                    ticker = decision['ticker']
+                    story.append(Paragraph(f"{ticker} - {decision['action']} (Confidence: {decision['confidence']}/10)", self.styles['Heading3']))
                     story.append(Paragraph(f"Risk Level: {decision['risk']}", self.styles['Normal']))
+                    story.append(Paragraph(f"Reasoning: {decision['reasoning']}", self.styles['Normal']))
                     story.append(Spacer(1, 10))
-                    
-                    # Add charts if available
-                    if 'price_chart' in decision and decision['price_chart']:
-                        story.append(Image(decision['price_chart'], width=6*inch, height=4*inch))
-                        story.append(Spacer(1, 10))
-                    
-                    if 'technical_chart' in decision and decision['technical_chart']:
-                        story.append(Image(decision['technical_chart'], width=6*inch, height=4*inch))
-                        story.append(Spacer(1, 10))
-            
-            # Build PDF
+                    # Generate and add the full analysis figure
+                    if analyzer:
+                        data = analyzer.get_stock_data(ticker, period="6mo")
+                        indicators = analyzer.calculate_technical_indicators(data)
+                        # For RSI/MACD, add full series to indicators
+                        if not data.empty:
+                            # RSI
+                            delta = data['Close'].diff()
+                            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                            rs = gain / loss
+                            rsi_series = 100 - (100 / (1 + rs))
+                            indicators['rsi_series'] = rsi_series
+                            # MACD
+                            ema_12_series = data['Close'].ewm(span=12).mean()
+                            ema_26_series = data['Close'].ewm(span=26).mean()
+                            macd_series = ema_12_series - ema_26_series
+                            signal_series = macd_series.ewm(span=9).mean()
+                            histogram = macd_series - signal_series
+                            indicators['macd_series'] = macd_series
+                            indicators['signal_series'] = signal_series
+                            indicators['histogram'] = histogram
+                            # Create the figure
+                            fig_buffer, n_graphs = self.create_full_stock_analysis_figure(ticker, data, indicators)
+                            if fig_buffer:
+                                # Calculate appropriate image size for PDF page - reduced further
+                                max_width = 5.5 * inch  # Reduced from 6.5*inch
+                                max_height = 2.0 * inch * n_graphs  # Reduced from 2.5*inch
+                                story.append(Image(fig_buffer, width=max_width, height=max_height))
+                                story.append(Spacer(1, 20))
             doc.build(story)
             buffer.seek(0)
-            
             return buffer
-            
         except Exception as e:
             logging.error(f"Error generating PDF report: {e}")
+            return None
+    
+    def create_full_stock_analysis_figure(self, ticker, data, indicators):
+        """Create a vertical stack of price, volume, RSI, MACD for a stock"""
+        try:
+            n_graphs = 2  # Always price and volume
+            if 'rsi' in indicators:
+                n_graphs += 1
+            if 'macd' in indicators:
+                n_graphs += 1
+            fig, axes = plt.subplots(n_graphs, 1, figsize=(10, 3*n_graphs), sharex=True)
+            if n_graphs == 1:
+                axes = [axes]
+            fig.suptitle(f"{ticker} - Technical Analysis", fontsize=16, fontweight='bold')
+            idx = 0
+            # 1. Price
+            try:
+                # Ensure 'Close' and 'Volume' are Series, not DataFrames
+                close_series = data['Close']
+                if isinstance(close_series, pd.DataFrame):
+                    close_series = close_series.iloc[:, 0]
+                volume_series = data['Volume']
+                if isinstance(volume_series, pd.DataFrame):
+                    volume_series = volume_series.iloc[:, 0]
+
+                axes[idx].plot(data.index, close_series, label='Close Price')
+                axes[idx].set_ylabel('Price')
+                axes[idx].legend()
+                axes[idx].set_title('Price Chart')
+            except Exception as e:
+                logging.error(f"Error plotting price for {ticker}: {e}")
+            idx += 1
+            # 2. Volume
+            try:
+                axes[idx].bar(data.index, volume_series, label='Volume')
+                axes[idx].set_ylabel('Volume')
+                axes[idx].legend()
+                axes[idx].set_title('Volume Chart')
+            except Exception as e:
+                logging.error(f"Error plotting volume for {ticker}: {e}")
+            idx += 1
+            # 3. RSI
+            if 'rsi' in indicators:
+                rsi_series = indicators.get('rsi_series')
+                # Ensure rsi_series is a Series, not a DataFrame
+                if isinstance(rsi_series, pd.DataFrame):
+                    rsi_series = rsi_series.iloc[:, 0]
+                try:
+                    if rsi_series is not None and hasattr(rsi_series, '__len__') and len(rsi_series) == len(data.index):
+                        axes[idx].plot(data.index, rsi_series, label='RSI')
+                        axes[idx].set_ylabel('RSI')
+                        axes[idx].legend()
+                        axes[idx].set_title('RSI Chart')
+                except Exception as e:
+                    logging.error(f"Error plotting RSI for {ticker}: {e}")
+                idx += 1
+            # 4. MACD
+            if 'macd' in indicators:
+                macd_series = indicators.get('macd_series')
+                signal_series = indicators.get('signal_series')
+                histogram = indicators.get('histogram')
+                # Ensure all are Series, not DataFrames
+                if isinstance(macd_series, pd.DataFrame):
+                    macd_series = macd_series.iloc[:, 0]
+                if isinstance(signal_series, pd.DataFrame):
+                    signal_series = signal_series.iloc[:, 0]
+                if isinstance(histogram, pd.DataFrame):
+                    histogram = histogram.iloc[:, 0]
+                try:
+                    if (macd_series is not None and signal_series is not None and histogram is not None and
+                        hasattr(macd_series, '__len__') and hasattr(signal_series, '__len__') and hasattr(histogram, '__len__') and
+                        len(macd_series) == len(data.index) and len(signal_series) == len(data.index) and len(histogram) == len(data.index)):
+                        axes[idx].plot(data.index, macd_series, label='MACD')
+                        axes[idx].plot(data.index, signal_series, label='Signal')
+                        axes[idx].bar(data.index, histogram, label='Histogram')
+                        axes[idx].set_ylabel('MACD')
+                        axes[idx].legend()
+                        axes[idx].set_title('MACD Chart')
+                except Exception as e:
+                    logging.error(f"Error plotting MACD for {ticker}: {e}")
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', facecolor='white')
+            buffer.seek(0)
+            plt.close()
+            return buffer, n_graphs
+        except Exception as e:
+            logging.error(f"Error creating full stock analysis figure for {ticker}: {e}")
+            return None, 0
+    
+    def create_decision_matrix_chart(self, decisions: List[Dict], analyzer=None) -> str:
+        """Create a matrix layout of technical charts for multiple decisions"""
+        try:
+            if not decisions:
+                return None
+            
+            # Determine matrix dimensions
+            n_decisions = len(decisions)
+            if n_decisions <= 2:
+                cols = 2
+                rows = 1
+            elif n_decisions <= 4:
+                cols = 2
+                rows = 2
+            else:
+                cols = 3
+                rows = (n_decisions + 2) // 3  # Ceiling division
+            
+            # Create subplot grid
+            fig, axes = plt.subplots(rows, cols, figsize=(16, 4*rows))
+            fig.suptitle('Technical Analysis Matrix', fontsize=16, fontweight='bold', y=0.98)
+            
+            # Ensure axes is always a 2D array
+            if rows == 1 and cols == 1:
+                axes = np.array([[axes]])
+            elif rows == 1:
+                axes = axes.reshape(1, -1)
+            elif cols == 1:
+                axes = axes.reshape(-1, 1)
+            
+            # Color scheme for consistency
+            colors = {
+                'price': '#1f77b4',
+                'sma20': '#ff7f0e',
+                'sma50': '#d62728',
+                'volume': '#2ca02c',
+                'rsi': '#9467bd',
+                'macd': '#8c564b',
+                'signal': '#e377c2',
+                'overbought': '#ff4444',
+                'oversold': '#44ff44',
+                'neutral': '#ffaa00'
+            }
+            
+            for idx, decision in enumerate(decisions):
+                row = idx // cols
+                col = idx % cols
+                ax = axes[row, col]
+                
+                ticker = decision['ticker']
+                
+                # Get stock data for this ticker
+                try:
+                    if analyzer:
+                        stock_data = analyzer.get_stock_data(ticker, period="1mo")
+                    else:
+                        # Fallback: try to get data directly
+                        stock_data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True)
+                    
+                    if stock_data.empty:
+                        ax.text(0.5, 0.5, f'No data for {ticker}', ha='center', va='center', transform=ax.transAxes)
+                        ax.set_title(f'{ticker} - {decision["action"]}', fontsize=10, fontweight='bold')
+                        continue
+                    
+                    # Handle MultiIndex if present
+                    if isinstance(stock_data.columns, pd.MultiIndex):
+                        ticker_name = stock_data.columns.get_level_values(1)[0]
+                        close_data = stock_data[('Close', ticker_name)]
+                        volume_data = stock_data[('Volume', ticker_name)]
+                    else:
+                        close_data = stock_data['Close']
+                        volume_data = stock_data['Volume']
+                    
+                    # Create mini technical chart
+                    # Price and moving averages
+                    ax.plot(stock_data.index, close_data, label='Price', linewidth=1.5, color=colors['price'], alpha=0.8)
+                    
+                    # Add moving averages
+                    sma_20 = close_data.rolling(window=20).mean()
+                    sma_50 = close_data.rolling(window=50).mean()
+                    ax.plot(stock_data.index, sma_20, label='SMA20', linewidth=1, color=colors['sma20'], alpha=0.7)
+                    ax.plot(stock_data.index, sma_50, label='SMA50', linewidth=1, color=colors['sma50'], alpha=0.7)
+                    
+                    # Add decision annotation
+                    current_price = close_data.iloc[-1]
+                    decision_letter = "G" if decision['action'] == "BUY" else "R" if decision['action'] == "SELL" else "Y"
+                    
+                    # Color based on decision
+                    if decision['action'] == "BUY":
+                        bg_color = colors['oversold']
+                    elif decision['action'] == "SELL":
+                        bg_color = colors['overbought']
+                    else:
+                        bg_color = colors['neutral']
+                    
+                    # Try to use emoji, fallback to text if font doesn't support it
+                    ax.text(0.02, 0.98, f"{decision_letter} {decision['action']}\nConf: {decision['confidence']}/10", 
+                           transform=ax.transAxes, fontsize=8, fontname='DejaVu Sans',
+                           bbox=dict(boxstyle="round,pad=0.2", facecolor=bg_color, alpha=0.7),
+                           verticalalignment='top')
+                    
+                    # Add current price annotation
+                    ax.annotate(f'${current_price:.2f}', xy=(stock_data.index[-1], current_price), 
+                              xytext=(5, 5), textcoords='offset points', fontsize=8,
+                              bbox=dict(boxstyle="round,pad=0.2", facecolor='yellow', alpha=0.7),
+                              arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0', lw=0.5))
+                    
+                    ax.set_title(f'{ticker} - {decision["action"]} ({decision["confidence"]}/10)', 
+                               fontsize=10, fontweight='bold')
+                    ax.grid(True, alpha=0.3)
+                    ax.tick_params(axis='both', which='major', labelsize=8)
+                    
+                    # Rotate x-axis labels for better readability
+                    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+                    
+                except Exception as e:
+                    ax.text(0.5, 0.5, f'Error: {ticker}', ha='center', va='center', transform=ax.transAxes)
+                    ax.set_title(f'{ticker} - Error', fontsize=10, fontweight='bold')
+            
+            # Hide empty subplots
+            for idx in range(n_decisions, rows * cols):
+                row = idx // cols
+                col = idx % cols
+                axes[row, col].set_visible(False)
+            
+            plt.tight_layout()
+            
+            # Save to buffer
+            chart_buffer = io.BytesIO()
+            plt.savefig(chart_buffer, format='png', dpi=200, bbox_inches='tight', facecolor='white')
+            chart_buffer.seek(0)
+            plt.close()
+            
+            return chart_buffer
+            
+        except Exception as e:
+            logging.error(f"Error creating decision matrix chart: {e}")
             return None
 
 class EthicalFilter:
@@ -238,7 +644,7 @@ class EthicalFilter:
                 print(f"❌ Excluded {company_info.get('symbol', 'Unknown')}: Unethical sector '{unethical_sector}'")
                 return False
                 
-        print(f"✅ {company_info.get('symbol', 'Unknown')}: Passed ethical screening")
+        #print(f"✅ {company_info.get('symbol', 'Unknown')}: Passed ethical screening")
         return True
 
 class StockAnalyzer:
@@ -267,80 +673,127 @@ class StockAnalyzer:
         if data.empty:
             return {}
             
-        print("🔧 Calculating technical indicators...")
         indicators = {}
         
+        def safe_scalar(value, default=0.0):
+            """Safely extract scalar value from pandas Series/DataFrame"""
+            try:
+                if hasattr(value, 'iloc'):
+                    # Handle Series with MultiIndex or complex structure
+                    if hasattr(value, 'values'):
+                        return float(value.values[-1])
+                    else:
+                        return float(value.iloc[-1])
+                elif isinstance(value, (np.ndarray, list)):
+                    return float(value[-1])
+                else:
+                    return float(value)
+            except Exception as e:
+                return default
+        
+        # Handle MultiIndex columns
+        if isinstance(data.columns, pd.MultiIndex):
+            ticker_name = data.columns.get_level_values(1)[0]
+            close_data = data[('Close', ticker_name)]
+            volume_data = data[('Volume', ticker_name)]
+        else:
+            close_data = data['Close']
+            volume_data = data['Volume']
+        
         # Moving averages
-        indicators['sma_20'] = data['Close'].rolling(window=20).mean().iloc[-1]
-        indicators['sma_50'] = data['Close'].rolling(window=50).mean().iloc[-1]
-        indicators['ema_12'] = data['Close'].ewm(span=12).mean().iloc[-1]
-        indicators['ema_26'] = data['Close'].ewm(span=26).mean().iloc[-1]
+        sma_20_series = close_data.rolling(window=20).mean()
+        sma_50_series = close_data.rolling(window=50).mean()
+        ema_12_series = close_data.ewm(span=12).mean()
+        ema_26_series = close_data.ewm(span=26).mean()
+        
+        indicators['sma_20'] = safe_scalar(sma_20_series)
+        indicators['sma_50'] = safe_scalar(sma_50_series)
+        indicators['ema_12'] = safe_scalar(ema_12_series)
+        indicators['ema_26'] = safe_scalar(ema_26_series)
         
         # RSI
-        delta = data['Close'].diff()
+        delta = close_data.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
-        indicators['rsi'] = 100 - (100 / (1 + rs.iloc[-1]))
+        rsi_series = 100 - (100 / (1 + rs))
+        indicators['rsi'] = safe_scalar(rsi_series)
         
         # MACD
         indicators['macd'] = indicators['ema_12'] - indicators['ema_26']
         
-        # Bollinger Bands - Fixed to extract scalar values
-        sma_20 = data['Close'].rolling(window=20).mean()
-        std_20 = data['Close'].rolling(window=20).std()
-        bb_upper = sma_20 + (std_20 * 2)
-        bb_lower = sma_20 - (std_20 * 2)
+        # Bollinger Bands
+        sma_20_series = close_data.rolling(window=20).mean()
+        std_20_series = close_data.rolling(window=20).std()
+        bb_upper_series = sma_20_series + (std_20_series * 2)
+        bb_lower_series = sma_20_series - (std_20_series * 2)
         
-        # Extract scalar values for Bollinger Bands
-        indicators['bb_upper'] = bb_upper.iloc[-1]
-        indicators['bb_lower'] = bb_lower.iloc[-1]
-        indicators['bb_position'] = (data['Close'].iloc[-1] - indicators['bb_lower']) / (indicators['bb_upper'] - indicators['bb_lower'])
+        indicators['bb_upper'] = safe_scalar(bb_upper_series)
+        indicators['bb_lower'] = safe_scalar(bb_lower_series)
+        indicators['bb_position'] = (safe_scalar(close_data) - indicators['bb_lower']) / (indicators['bb_upper'] - indicators['bb_lower'])
         
         # Volume analysis
-        indicators['volume_sma'] = data['Volume'].rolling(window=20).mean().iloc[-1]
-        indicators['volume_ratio'] = data['Volume'].iloc[-1] / indicators['volume_sma']
+        volume_sma_series = volume_data.rolling(window=20).mean()
+        indicators['volume_sma'] = safe_scalar(volume_sma_series)
+        indicators['volume_ratio'] = safe_scalar(volume_data) / indicators['volume_sma']
         
         # Price momentum
-        indicators['price_momentum'] = (data['Close'].iloc[-1] / data['Close'].iloc[-5] - 1) * 100
+        current_price = safe_scalar(close_data)
+        price_5_days_ago = safe_scalar(close_data.iloc[-5] if len(close_data) >= 5 else close_data.iloc[0])
+        indicators['price_momentum'] = (current_price / price_5_days_ago - 1) * 100
         
-        print(f"✅ Calculated {len(indicators)} technical indicators")
         return indicators
     
     def get_news_sentiment(self, ticker: str) -> Tuple[float, str]:
         """Get news sentiment for a ticker"""
         try:
             print(f"📰 Fetching news for {ticker}...")
-            
-            # Get company name for better news search
-            stock_info = yf.Ticker(ticker).info
-            company_name = stock_info.get('longName', ticker)
-            
-            # Search for news
-            url = f"https://newsapi.org/v2/everything?q={company_name}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
+            try:
+                stock_info = yf.Ticker(ticker).info
+                company_name = stock_info.get('longName', ticker) if stock_info else ticker
+            except Exception as e:
+                print(f"⚠️ Could not get company info for {ticker}: {e}")
+                company_name = ticker
+
+            # Check if NEWSAPI_KEY is available
+            if not NEWSAPI_KEY:
+                print(f"⚠️ No NewsAPI key configured for {ticker}")
+                return 0.0, "No news API configured."
+
+            # Try with ticker first
+            url = f"https://newsapi.org/v2/everything?q={ticker}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
             response = requests.get(url)
             news_data = response.json()
-            
+            print(f"[DEBUG] NewsAPI response for {ticker}: {news_data}")
+
+            # If no news, try with company_name
+            if news_data.get('status') != 'ok' or not news_data.get('articles'):
+                print(f"⚠️ No news found for ticker {ticker}, trying company name: {company_name}")
+                url = f"https://newsapi.org/v2/everything?q={company_name}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
+                response = requests.get(url)
+                news_data = response.json()
+                print(f"[DEBUG] NewsAPI response for {company_name}: {news_data}")
+
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
                 print(f"⚠️ No recent news found for {ticker}")
                 return 0.0, "No recent news found."
-            
+
             # Analyze sentiment
             sentiments = []
             news_summary = []
-            
+
             for article in news_data['articles'][:3]:  # Limit to 3 articles to save API calls
                 text = f"{article.get('title', '')} {article.get('description', '')}"
                 sentiment = TextBlob(text).sentiment.polarity
                 sentiments.append(sentiment)
                 news_summary.append(f"{article.get('title', '')}: {article.get('description', '')[:100]}...")
-            
+
             avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0.0
             news_text = " | ".join(news_summary[:2])  # Limit summary length
-            
+
             print(f"✅ News sentiment for {ticker}: {avg_sentiment:.3f}")
             return avg_sentiment, news_text
-            
+
         except Exception as e:
             print(f"❌ Error getting news for {ticker}: {e}")
             return 0.0, "Error fetching news."
@@ -466,11 +919,36 @@ class StockScreener:
             # Consumer
             'NKE', 'SBUX', 'TGT', 'COST', 'HD',
             # European stocks (since you're in EUR)
-            'ASML', 'SAP', 'NESN.SW', 'NOVO-B.CO', 'ROCHE.SW'
+            'ASML', 'SAP', 'NESN.SW', 'NOVO-B.CO', 'ROCHE.SW',
+            # Additional stocks requested
+            'PRY.MI',  # Prysmian (Italian)
+            'ORSTED.CO',  # Orsted (Danish)
+            'PCELL.ST',  # Powercell Sweden
+            'QS',  # Quantumscape
+            'FLNC',  # Fluence Energy
+            # Additional clean energy and tech
+            'VWDRY',  # Vestas Wind Systems
+            'ENEL.MI',  # Enel (Italian utility)
+            'EDF.PA',  # EDF (French utility)
+            'SIEGY',  # Siemens
+            'ABB',  # ABB Ltd
+            'WOLF',  # Wolfspeed
+            'ON',  # ON Semiconductor
+            'STM',  # STMicroelectronics
+            'NXP',  # NXP Semiconductors
+            'INFN',  # Infinera
+            'COHR',  # Coherent
+            'IIVI',  # II-VI Incorporated
+            'LITE',  # Lumentum
+            'ACN',  # Accenture
+            'CTSH',  # Cognizant
+            'WIT',  # Wipro
+            'INFY',  # Infosys
+            'TCS',  # Tata Consultancy Services
         ]
         return stocks
     
-    def screen_stocks(self, min_market_cap: float = 1e9) -> List[Dict]:
+    def screen_stocks(self, min_market_cap: float = 500e6) -> List[Dict]:
         """Screen stocks based on criteria"""
         stocks = self.get_stock_universe()
         screened_stocks = []
@@ -482,11 +960,25 @@ class StockScreener:
                 stock = yf.Ticker(ticker)
                 info = stock.info
                 
-                # Basic filters
-                if (info.get('marketCap', 0) < min_market_cap or
-                    info.get('regularMarketPrice', 0) < 5 or
-                    info.get('regularMarketPrice', 0) > 1000):
-                    print(f"⏭️ Skipped {ticker}: Failed basic filters")
+                # Debug: Print stock info for troubleshooting
+                market_cap = info.get('marketCap', 0)
+                current_price = info.get('regularMarketPrice', 0)
+                volume = info.get('volume', 0)
+                avg_volume = info.get('averageVolume', 0)
+                
+                #print(f"🔍 {ticker}: Market Cap=${market_cap:,.0f}, Price=${current_price:.2f}, Volume={volume:,.0f}, Avg Volume={avg_volume:,.0f}")
+                
+                # Basic filters with detailed feedback
+                if market_cap < min_market_cap:
+                    print(f"⏭️ Skipped {ticker}: Market cap too low (${market_cap:,.0f} < ${min_market_cap:,.0f})")
+                    continue
+                
+                if current_price < 2:
+                    print(f"⏭️ Skipped {ticker}: Price too low (${current_price:.2f} < $2.00)")
+                    continue
+                
+                if current_price > 2000:
+                    print(f"⏭️ Skipped {ticker}: Price too high (${current_price:.2f} > $2000.00)")
                     continue
                 
                 # Ethical filter
@@ -496,23 +988,19 @@ class StockScreener:
                 # Get recent price data
                 data = stock.history(period="1mo")
                 if data.empty:
-                    print(f"⏭️ Skipped {ticker}: No price data")
+                    print(f"⏭️ Skipped {ticker}: No price data available")
                     continue
                 
-                # Calculate basic metrics
-                current_price = info.get('regularMarketPrice', 0)
-                volume = info.get('volume', 0)
-                avg_volume = info.get('averageVolume', 0)
-                
-                if volume < avg_volume * 0.5:  # Skip low volume stocks
-                    print(f"⏭️ Skipped {ticker}: Low volume")
+                # Volume check with more lenient criteria
+                if avg_volume > 0 and volume < avg_volume * 0.2:
+                    print(f"⏭️ Skipped {ticker}: Low volume (current: {volume:,.0f}, avg: {avg_volume:,.0f}, ratio: {volume/avg_volume:.2f})")
                     continue
                 
                 screened_stocks.append({
                     'ticker': ticker,
                     'name': info.get('longName', ticker),
                     'sector': info.get('sector', 'Unknown'),
-                    'market_cap': info.get('marketCap', 0),
+                    'market_cap': market_cap,
                     'current_price': current_price,
                     'volume': volume,
                     'avg_volume': avg_volume,
@@ -520,7 +1008,7 @@ class StockScreener:
                     'beta': info.get('beta', 1.0)
                 })
                 
-                print(f"✅ {ticker} passed screening")
+                #print(f"✅ {ticker} passed screening")
                 
             except Exception as e:
                 print(f"❌ Error screening {ticker}: {e}")
@@ -588,25 +1076,42 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     
     def send_session_summary(self, session_data: Dict):
         """Send session summary"""
-        message = f"""
-🤖 <b>AI Trading Session Summary</b>
+        # Get detailed position performance for invested amount and unrealized P&L
+        performance = None
+        invested_amount = None
+        unrealized_pl = None
+        unrealized_pl_pct = None
+        try:
+            performance = self.trader.get_position_performance()
+            if performance and 'portfolio_summary' in performance:
+                summary = performance['portfolio_summary']
+                invested_amount = summary.get('invested_amount', 0)
+                unrealized_pl = summary.get('total_unrealized_pl', 0)
+                unrealized_pl_pct = summary.get('total_unrealized_pl_pct', 0)
+        except Exception as e:
+            print(f"[DEBUG] Could not fetch position performance for session summary: {e}")
 
-📊 <b>Analysis Results:</b>
-• Stocks Analyzed: {session_data.get('stocks_analyzed', 0)}
-• Trades Executed: {session_data.get('trades_executed', 0)}
-• Buy Orders: {session_data.get('buy_orders', 0)}
-• Sell Orders: {session_data.get('sell_orders', 0)}
-
-💰 <b>Portfolio Status:</b>
-• Total Value: ${session_data.get('portfolio_value', 0):,.2f}
-• Available Cash: ${session_data.get('available_cash', 0):,.2f}
-• Active Positions: {session_data.get('active_positions', 0)}
-
-📈 <b>Top Decisions:</b>
-{self._format_top_decisions(session_data.get('top_decisions', []))}
-
-⏰ Session Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        """
+        message = (
+            f"🤖 <b>AI Trading Session Summary</b>\n\n"
+            f"📊 <b>Analysis Results:</b>\n"
+            f"• Stocks Analyzed: {session_data.get('stocks_analyzed', 0)}\n"
+            f"• Trades Executed: {session_data.get('trades_executed', 0)}\n"
+            f"• Buy Orders: {session_data.get('buy_orders', 0)}\n"
+            f"• Sell Orders: {session_data.get('sell_orders', 0)}\n\n"
+            f"💰 <b>Portfolio Status:</b>\n"
+            f"• Total Value: ${session_data.get('portfolio_value', 0):,.2f}\n"
+            f"• Available Cash: ${session_data.get('available_cash', 0):,.2f}"
+        )
+        if invested_amount is not None:
+            message += f"\n• Invested Amount: ${invested_amount:,.2f}"
+        if unrealized_pl is not None:
+            message += f"\n• Unrealized P&L: ${unrealized_pl:,.2f} ({unrealized_pl_pct:+.2f}%)"
+        message += f"\n• Active Positions: {session_data.get('active_positions', 0)}\n\n"
+        message += (
+            f"📈 <b>Top Decisions:</b>\n"
+            f"{self._format_top_decisions(session_data.get('top_decisions', []))}\n\n"
+            f"⏰ Session Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
         self.send_message(message)
     
     def _format_top_decisions(self, decisions: List) -> str:
@@ -753,9 +1258,18 @@ class AITrader:
             print("❌ No stocks passed screening - stopping session")
             return
         
+        # Always analyze portfolio stocks + fill up to 5 with random others
+        current_positions = self.get_portfolio_positions()
+        portfolio_tickers = set(current_positions.keys())
+        portfolio_stocks = [s for s in screened_stocks if s['ticker'] in portfolio_tickers]
+        other_stocks = [s for s in screened_stocks if s['ticker'] not in portfolio_tickers]
+        num_to_pick = max(0, 5 - len(portfolio_stocks))
+        random_others = random.sample(other_stocks, min(num_to_pick, len(other_stocks)))
+        stocks_to_analyze = portfolio_stocks + random_others
+        print(f"  Stocks to analyze this session: {[s['ticker'] for s in stocks_to_analyze]}")
+        
         # Analyze each stock (limit to save API costs)
         analysis_results = []
-        stocks_to_analyze = screened_stocks[:10]  # Limit to top 10 for efficiency
         
         print(f"\n🔍 Analyzing {len(stocks_to_analyze)} stocks...")
         
@@ -907,7 +1421,7 @@ class AITrader:
         self.notifier.send_session_summary(session_data)
         
         # Generate and send PDF report
-        pdf_buffer = self.analyzer.pdf_generator.generate_trading_report(session_data)
+        pdf_buffer = self.analyzer.pdf_generator.generate_trading_report(session_data, self.analyzer)
         if pdf_buffer:
             filename = f"trading_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             self.notifier.send_document(
@@ -921,6 +1435,518 @@ class AITrader:
         print("="*60)
         
         return session_data
+
+    def get_position_performance(self) -> Dict:
+        """Get detailed performance analysis of current positions"""
+        try:
+            positions = self.get_portfolio_positions()
+            account = self.get_account_info()
+            
+            if not positions or not account:
+                return {}
+            
+            position_analysis = {
+                'total_positions': len(positions),
+                'total_market_value': 0,
+                'total_unrealized_pl': 0,
+                'total_unrealized_pl_pct': 0,
+                'positions': {},
+                'best_performer': None,
+                'worst_performer': None,
+                'portfolio_summary': {}
+            }
+            
+            best_pl_pct = -float('inf')
+            worst_pl_pct = float('inf')
+            
+            for ticker, position in positions.items():
+                # Calculate position metrics
+                quantity = position['quantity']
+                avg_price = position['avg_price']
+                current_price = position['current_price']
+                market_value = position['market_value']
+                unrealized_pl = position['unrealized_pl']
+                
+                # Calculate percentage return
+                unrealized_pl_pct = ((current_price - avg_price) / avg_price) * 100
+                
+                # Calculate position size as percentage of portfolio
+                portfolio_value = account.get('portfolio_value', 0)
+                position_size_pct = (market_value / portfolio_value) * 100 if portfolio_value > 0 else 0
+                
+                # Get historical data for performance analysis
+                try:
+                    stock_data = self.analyzer.get_stock_data(ticker, period="1mo")
+                    if not stock_data.empty:
+                        # Handle MultiIndex if present
+                        if isinstance(stock_data.columns, pd.MultiIndex):
+                            ticker_name = stock_data.columns.get_level_values(1)[0]
+                            close_data = stock_data[('Close', ticker_name)]
+                        else:
+                            close_data = stock_data['Close']
+                        
+                        # Calculate performance metrics
+                        price_1w_ago = close_data.iloc[-7] if len(close_data) >= 7 else close_data.iloc[0]
+                        price_1m_ago = close_data.iloc[0]
+                        
+                        performance_1w = ((current_price - price_1w_ago) / price_1w_ago) * 100
+                        performance_1m = ((current_price - price_1m_ago) / price_1m_ago) * 100
+                        
+                        # Calculate volatility (standard deviation of returns)
+                        returns = close_data.pct_change().dropna()
+                        volatility = returns.std() * 100
+                        
+                    else:
+                        performance_1w = 0
+                        performance_1m = 0
+                        volatility = 0
+                        
+                except Exception as e:
+                    performance_1w = 0
+                    performance_1m = 0
+                    volatility = 0
+                
+                position_info = {
+                    'ticker': ticker,
+                    'quantity': quantity,
+                    'avg_price': avg_price,
+                    'current_price': current_price,
+                    'market_value': market_value,
+                    'unrealized_pl': unrealized_pl,
+                    'unrealized_pl_pct': unrealized_pl_pct,
+                    'position_size_pct': position_size_pct,
+                    'performance_1w': performance_1w,
+                    'performance_1m': performance_1m,
+                    'volatility': volatility,
+                    'days_held': 0  # Could be calculated if we track entry dates
+                }
+                
+                position_analysis['positions'][ticker] = position_info
+                position_analysis['total_market_value'] += market_value
+                position_analysis['total_unrealized_pl'] += unrealized_pl
+                
+                # Track best and worst performers
+                if unrealized_pl_pct > best_pl_pct:
+                    best_pl_pct = unrealized_pl_pct
+                    position_analysis['best_performer'] = ticker
+                
+                if unrealized_pl_pct < worst_pl_pct:
+                    worst_pl_pct = unrealized_pl_pct
+                    position_analysis['worst_performer'] = ticker
+            
+            # Calculate total portfolio metrics
+            if position_analysis['total_market_value'] > 0:
+                position_analysis['total_unrealized_pl_pct'] = (
+                    position_analysis['total_unrealized_pl'] / 
+                    (position_analysis['total_market_value'] - position_analysis['total_unrealized_pl'])
+                ) * 100
+            
+            # Portfolio summary
+            position_analysis['portfolio_summary'] = {
+                'total_value': account.get('portfolio_value', 0),
+                'cash': account.get('cash', 0),
+                'invested_amount': position_analysis['total_market_value'],
+                'total_unrealized_pl': position_analysis['total_unrealized_pl'],
+                'total_unrealized_pl_pct': position_analysis['total_unrealized_pl_pct'],
+                'positions_count': position_analysis['total_positions']
+            }
+            
+            return position_analysis
+            
+        except Exception as e:
+            logging.error(f"Error getting position performance: {e}")
+            return {}
+    
+    def generate_position_report(self) -> str:
+        """Generate a detailed position performance report"""
+        try:
+            performance = self.get_position_performance()
+            
+            if not performance:
+                return "No positions to report."
+            
+            # Create detailed report
+            report_lines = []
+            report_lines.append("📊 **POSITION PERFORMANCE REPORT**")
+            report_lines.append("=" * 50)
+            
+            # Portfolio Summary
+            summary = performance['portfolio_summary']
+            report_lines.append(f"💰 **Portfolio Summary:**")
+            report_lines.append(f"Total Portfolio Value: ${summary['total_value']:,.2f}")
+            report_lines.append(f"Cash Available: ${summary['cash']:,.2f}")
+            report_lines.append(f"Invested Amount: ${summary['invested_amount']:,.2f}")
+            report_lines.append(f"Total Unrealized P&L: ${summary['total_unrealized_pl']:,.2f} ({summary['total_unrealized_pl_pct']:+.2f}%)")
+            report_lines.append(f"Active Positions: {summary['positions_count']}")
+            report_lines.append("")
+            
+            # Best and Worst Performers
+            if performance['best_performer']:
+                best = performance['positions'][performance['best_performer']]
+                report_lines.append(f"🏆 **Best Performer:** {performance['best_performer']}")
+                report_lines.append(f"   Unrealized P&L: ${best['unrealized_pl']:,.2f} ({best['unrealized_pl_pct']:+.2f}%)")
+                report_lines.append(f"   1-Week Performance: {best['performance_1w']:+.2f}%")
+                report_lines.append(f"   1-Month Performance: {best['performance_1m']:+.2f}%")
+                report_lines.append("")
+            
+            if performance['worst_performer']:
+                worst = performance['positions'][performance['worst_performer']]
+                report_lines.append(f"📉 **Worst Performer:** {performance['worst_performer']}")
+                report_lines.append(f"   Unrealized P&L: ${worst['unrealized_pl']:,.2f} ({worst['unrealized_pl_pct']:+.2f}%)")
+                report_lines.append(f"   1-Week Performance: {worst['performance_1w']:+.2f}%")
+                report_lines.append(f"   1-Month Performance: {worst['performance_1m']:+.2f}%")
+                report_lines.append("")
+            
+            # Individual Position Details
+            report_lines.append("📈 **Position Details:**")
+            report_lines.append("-" * 50)
+            
+            for ticker, pos in performance['positions'].items():
+                emoji = "🟢" if pos['unrealized_pl'] >= 0 else "🔴"
+                report_lines.append(f"{emoji} **{ticker}**")
+                report_lines.append(f"   Quantity: {pos['quantity']} shares")
+                report_lines.append(f"   Avg Price: ${pos['avg_price']:.2f} | Current: ${pos['current_price']:.2f}")
+                report_lines.append(f"   Market Value: ${pos['market_value']:,.2f} ({pos['position_size_pct']:.1f}% of portfolio)")
+                report_lines.append(f"   Unrealized P&L: ${pos['unrealized_pl']:,.2f} ({pos['unrealized_pl_pct']:+.2f}%)")
+                report_lines.append(f"   1-Week: {pos['performance_1w']:+.2f}% | 1-Month: {pos['performance_1m']:+.2f}% | Volatility: {pos['volatility']:.1f}%")
+                report_lines.append("")
+            
+            report_lines.append(f"📅 Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            return "\n".join(report_lines)
+            
+        except Exception as e:
+            logging.error(f"Error generating position report: {e}")
+            return f"Error generating position report: {str(e)}"
+    
+    def send_position_update(self, force_update: bool = False):
+        """Send position performance update via Telegram"""
+        try:
+            # Only send if we have positions or if forced
+            performance = self.get_position_performance()
+            
+            if not performance and not force_update:
+                return
+            
+            if not performance:
+                self.notifier.send_message("📊 **Position Update:** No active positions.")
+                return
+            
+            # Create concise update message
+            summary = performance['portfolio_summary']
+            
+            # Determine overall performance emoji
+            if summary['total_unrealized_pl'] > 0:
+                overall_emoji = "📈"
+            elif summary['total_unrealized_pl'] < 0:
+                overall_emoji = "📉"
+            else:
+                overall_emoji = "➡️"
+            
+            message = f"""
+{overall_emoji} **Position Update**
+
+💰 **Portfolio Summary:**
+• Total Value: ${summary['total_value']:,.2f}
+• Cash: ${summary['cash']:,.2f}
+• Unrealized P&L: ${summary['total_unrealized_pl']:,.2f} ({summary['total_unrealized_pl_pct']:+.2f}%)
+• Active Positions: {summary['positions_count']}
+
+🏆 **Top Performers:**
+"""
+            
+            # Add top 3 performers
+            positions_sorted = sorted(
+                performance['positions'].items(), 
+                key=lambda x: x[1]['unrealized_pl_pct'], 
+                reverse=True
+            )
+            
+            for i, (ticker, pos) in enumerate(positions_sorted[:3]):
+                emoji = "🟢" if pos['unrealized_pl_pct'] >= 0 else "🔴"
+                message += f"{i+1}. {emoji} {ticker}: {pos['unrealized_pl_pct']:+.2f}% (${pos['unrealized_pl']:,.2f})\n"
+            
+            message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            
+            self.notifier.send_message(message)
+            
+        except Exception as e:
+            logging.error(f"Error sending position update: {e}")
+            self.notifier.send_message(f"❌ Error sending position update: {str(e)}")
+
+    def request_position_update(self, request_type: str = "summary"):
+        """Handle on-demand position update requests"""
+        try:
+            if request_type.lower() in ["summary", "brief", "quick"]:
+                # Send concise position update
+                self.send_position_update(force_update=True)
+                
+            elif request_type.lower() in ["detailed", "full", "complete"]:
+                # Send detailed position report
+                report = self.generate_position_report()
+                if report and report != "No positions to report.":
+                    # Split long reports if needed
+                    if len(report) > 4000:
+                        # Send in parts
+                        parts = [report[i:i+4000] for i in range(0, len(report), 4000)]
+                        for i, part in enumerate(parts):
+                            self.notifier.send_message(f"📊 Position Report (Part {i+1}/{len(parts)}):\n\n{part}")
+                    else:
+                        self.notifier.send_message(f"📊 **Detailed Position Report:**\n\n{report}")
+                else:
+                    self.notifier.send_message("📊 **Position Report:** No active positions to report.")
+                    
+            elif request_type.lower() in ["performance", "perf"]:
+                # Send performance-focused update
+                performance = self.get_position_performance()
+                if not performance:
+                    self.notifier.send_message("📊 **Performance Update:** No active positions.")
+                    return
+                
+                summary = performance['portfolio_summary']
+                message = f"""
+📊 <b>Performance Update</b>
+
+💰 <b>Portfolio Performance:</b>
+• Total Return: {summary['total_unrealized_pl_pct']:+.2f}%
+• Unrealized P&L: ${summary['total_unrealized_pl']:,.2f}
+• Invested: ${summary['invested_amount']:,.2f}
+
+🏆 <b>Top Performers (1-Month):</b>
+"""
+                
+                # Sort by 1-month performance
+                positions_sorted = sorted(
+                    performance['positions'].items(), 
+                    key=lambda x: x[1]['performance_1m'], 
+                    reverse=True
+                )
+                
+                for i, (ticker, pos) in enumerate(positions_sorted[:3]):
+                    emoji = "🟢" if pos['performance_1m'] >= 0 else "🔴"
+                    message += f"{i+1}. {emoji} {ticker}: {pos['performance_1m']:+.2f}% (1M)\n"
+                
+                message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                self.notifier.send_message(message)
+                
+            else:
+                # Default to summary
+                self.send_position_update(force_update=True)
+                
+        except Exception as e:
+            logging.error(f"Error handling position update request: {e}")
+            self.notifier.send_message(f"❌ Error generating position update: {str(e)}")
+    
+    def get_position_summary(self) -> str:
+        """Get a quick position summary for internal use"""
+        try:
+            performance = self.get_position_performance()
+            if not performance:
+                return "No active positions"
+            
+            summary = performance['portfolio_summary']
+            return f"${summary['total_unrealized_pl']:,.2f} ({summary['total_unrealized_pl_pct']:+.2f}%) - {summary['positions_count']} positions"
+            
+        except Exception as e:
+            logging.error(f"Error getting position summary: {e}")
+            return "Error getting position summary"
+
+    def create_portfolio_performance_chart(self):
+        """Create a chart showing total unrealized P&L performance over time"""
+        try:
+            positions = self.get_portfolio_positions()
+            if not positions:
+                return None
+            
+            # Get historical data for all positions
+            portfolio_data = {}
+            for ticker in positions.keys():
+                try:
+                    data = yf.download(ticker, period="3mo", interval="1d", auto_adjust=True)
+                    if not data.empty:
+                        portfolio_data[ticker] = data
+                except Exception as e:
+                    logging.error(f"Error fetching data for {ticker}: {e}")
+                    continue
+            
+            if not portfolio_data:
+                return None
+            
+            # Calculate daily portfolio performance
+            dates = list(portfolio_data.values())[0].index
+            daily_pnl = []
+            daily_pnl_pct = []
+            
+            for date in dates:
+                total_invested = 0
+                total_current_value = 0
+                
+                for ticker, data in portfolio_data.items():
+                    if date in data.index:
+                        position = positions[ticker]
+                        quantity = position['quantity']
+                        avg_price = position['avg_price']
+                        current_price = data.loc[date, 'Close']
+                        
+                        invested = quantity * avg_price
+                        current_value = quantity * current_price
+                        
+                        total_invested += invested
+                        total_current_value += current_value
+                
+                if total_invested > 0:
+                    pnl = total_current_value - total_invested
+                    pnl_pct = (pnl / total_invested) * 100
+                    daily_pnl.append(pnl)
+                    daily_pnl_pct.append(pnl_pct)
+                else:
+                    daily_pnl.append(0)
+                    daily_pnl_pct.append(0)
+            
+            # Create the chart
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+            fig.suptitle('Portfolio Performance Over Time', fontsize=16, fontweight='bold')
+            
+            # Currency P&L chart
+            ax1.plot(dates, daily_pnl, linewidth=2, color='blue', alpha=0.8)
+            ax1.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+            ax1.fill_between(dates, daily_pnl, 0, where=(np.array(daily_pnl) >= 0), 
+                           color='green', alpha=0.3, label='Profit')
+            ax1.fill_between(dates, daily_pnl, 0, where=(np.array(daily_pnl) < 0), 
+                           color='red', alpha=0.3, label='Loss')
+            ax1.set_ylabel('Unrealized P&L ($)', fontsize=12)
+            ax1.set_title('Total Unrealized P&L (Currency)', fontsize=14)
+            ax1.grid(True, alpha=0.3)
+            ax1.legend()
+            
+            # Percentage P&L chart
+            ax2.plot(dates, daily_pnl_pct, linewidth=2, color='purple', alpha=0.8)
+            ax2.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+            ax2.fill_between(dates, daily_pnl_pct, 0, where=(np.array(daily_pnl_pct) >= 0), 
+                           color='green', alpha=0.3, label='Profit %')
+            ax2.fill_between(dates, daily_pnl_pct, 0, where=(np.array(daily_pnl_pct) < 0), 
+                           color='red', alpha=0.3, label='Loss %')
+            ax2.set_ylabel('Unrealized P&L (%)', fontsize=12)
+            ax2.set_title('Total Unrealized P&L (Percentage)', fontsize=14)
+            ax2.grid(True, alpha=0.3)
+            ax2.legend()
+            
+            plt.tight_layout()
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='png', dpi=200, bbox_inches='tight', facecolor='white')
+            buffer.seek(0)
+            plt.close()
+            return buffer
+            
+        except Exception as e:
+            logging.error(f"Error creating portfolio performance chart: {e}")
+            return None
+
+    def generate_position_report_pdf(self):
+        """Generate a PDF with the current portfolio performance summary and details."""
+        try:
+            performance = self.get_position_performance()
+            if not performance:
+                return None
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.lib.units import inch
+            import io
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4)
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=20)
+            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Heading2'], fontSize=14, spaceAfter=10)
+            story = []
+            story.append(Paragraph("Portfolio Performance Report", title_style))
+            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+            story.append(Spacer(1, 12))
+            
+            # Portfolio Performance Chart
+            chart_buffer = self.create_portfolio_performance_chart()
+            if chart_buffer:
+                story.append(Paragraph("Portfolio Performance Over Time", subtitle_style))
+                story.append(Image(chart_buffer, width=6*inch, height=4*inch))
+                story.append(Spacer(1, 12))
+            
+            # Portfolio Summary
+            summary = performance['portfolio_summary']
+            summary_data = [
+                ["Metric", "Value"],
+                ["Total Portfolio Value", f"${summary['total_value']:,.2f}"],
+                ["Cash Available", f"${summary['cash']:,.2f}"],
+                ["Invested Amount", f"${summary['invested_amount']:,.2f}"],
+                ["Total Unrealized P&L", f"${summary['total_unrealized_pl']:,.2f} ({summary['total_unrealized_pl_pct']:+.2f}%)"],
+                ["Active Positions", f"{summary['positions_count']}"]
+            ]
+            table = Table(summary_data, hAlign='LEFT')
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 16))
+            
+            # Best and Worst Performers
+            if performance['best_performer']:
+                best = performance['positions'][performance['best_performer']]
+                story.append(Paragraph(f"Best Performer: {performance['best_performer']}", subtitle_style))
+                story.append(Paragraph(f"Unrealized P&L: ${best['unrealized_pl']:,.2f} ({best['unrealized_pl_pct']:+.2f}%)", styles['Normal']))
+                story.append(Paragraph(f"1-Week: {best['performance_1w']:+.2f}% | 1-Month: {best['performance_1m']:+.2f}% | Volatility: {best['volatility']:.1f}%", styles['Normal']))
+                story.append(Spacer(1, 8))
+            if performance['worst_performer']:
+                worst = performance['positions'][performance['worst_performer']]
+                story.append(Paragraph(f"Worst Performer: {performance['worst_performer']}", subtitle_style))
+                story.append(Paragraph(f"Unrealized P&L: ${worst['unrealized_pl']:,.2f} ({worst['unrealized_pl_pct']:+.2f}%)", styles['Normal']))
+                story.append(Paragraph(f"1-Week: {worst['performance_1w']:+.2f}% | 1-Month: {worst['performance_1m']:+.2f}% | Volatility: {worst['volatility']:.1f}%", styles['Normal']))
+                story.append(Spacer(1, 8))
+            
+            # Individual Position Details with Total Invested vs Current Worth
+            story.append(Paragraph("Position Details:", subtitle_style))
+            pos_data = [["Ticker", "Qty", "Avg Price", "Current Price", "Total Invested", "Current Worth", "Unrealized P&L", "% of Portfolio", "1W %", "1M %", "Volatility"]]
+            for ticker, pos in performance['positions'].items():
+                total_invested = pos['quantity'] * pos['avg_price']
+                current_worth = pos['quantity'] * pos['current_price']
+                pos_data.append([
+                    ticker,
+                    str(pos['quantity']),
+                    f"${pos['avg_price']:.2f}",
+                    f"${pos['current_price']:.2f}",
+                    f"${total_invested:,.2f}",
+                    f"${current_worth:,.2f}",
+                    f"${pos['unrealized_pl']:,.2f} ({pos['unrealized_pl_pct']:+.2f}%)",
+                    f"{pos['position_size_pct']:.1f}%",
+                    f"{pos['performance_1w']:+.2f}%",
+                    f"{pos['performance_1m']:+.2f}%",
+                    f"{pos['volatility']:.1f}%"
+                ])
+            pos_table = Table(pos_data, hAlign='LEFT', repeatRows=1)
+            pos_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+            ]))
+            story.append(pos_table)
+            story.append(Spacer(1, 12))
+            doc.build(story)
+            buffer.seek(0)
+            return buffer
+        except Exception as e:
+            logging.error(f"Error generating position PDF report: {e}")
+            return None
 
 def main():
     """Main function to run the AI trader"""
