@@ -106,7 +106,7 @@ class PDFReportGenerator:
         self.chart_cache = {}
     
     def create_price_chart(self, ticker: str, data: pd.DataFrame) -> str:
-        """Create simple price chart with memory optimization"""
+        """Create enhanced price chart with memory optimization"""
         try:
             if data.empty:
                 print(f"⚠️ No data available for {ticker} price chart")
@@ -118,30 +118,110 @@ class PDFReportGenerator:
                 print(f"✅ Using cached price chart for {ticker}")
                 return self.chart_cache[cache_key]
 
-            # Simple approach - just plot the data
-            plt.figure(figsize=(6, 3))  # Further reduced figure size
-            plt.plot(data.index, data['Close'], label='Close Price', linewidth=1.0)
-            plt.title(f'{ticker} Price Chart')
-            plt.xlabel('Date')
-            plt.ylabel('Price ($)')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            plt.xticks(rotation=45)
+            # Handle MultiIndex columns
+            if isinstance(data.columns, pd.MultiIndex):
+                ticker_name = data.columns.get_level_values(1)[0]
+                close_data = data[('Close', ticker_name)]
+                volume_data = data[('Volume', ticker_name)]
+            else:
+                close_data = data['Close']
+                volume_data = data['Volume']
+
+            # Set style for better visuals
+            plt.style.use('seaborn-v0_8')
+            
+            # Create enhanced price chart with larger size
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), height_ratios=[3, 1])
+            fig.suptitle(f'{ticker} Price Analysis', fontsize=16, fontweight='bold', y=0.98)
+            
+            # Color scheme
+            colors = {
+                'price': '#1f77b4',
+                'sma20': '#ff7f0e',
+                'sma50': '#d62728',
+                'volume': '#2ca02c',
+                'bullish': '#00ff00',
+                'bearish': '#ff0000'
+            }
+            
+            # Price chart with moving averages
+            ax1.plot(data.index, close_data, label='Close Price', linewidth=2.5, color=colors['price'], alpha=0.9)
+            
+            # Add moving averages
+            sma_20_series = close_data.rolling(window=20).mean()
+            sma_50_series = close_data.rolling(window=50).mean()
+            
+            ax1.plot(data.index, sma_20_series, label='SMA 20', linewidth=2.0, color=colors['sma20'], alpha=0.8)
+            ax1.plot(data.index, sma_50_series, label='SMA 50', linewidth=2.0, color=colors['sma50'], alpha=0.8)
+            
+            # Add current price annotation
+            current_price = close_data.iloc[-1]
+            ax1.annotate(f'${current_price:.2f}', xy=(data.index[-1], current_price), 
+                        xytext=(15, 15), textcoords='offset points',
+                        bbox=dict(boxstyle="round,pad=0.4", facecolor='yellow', alpha=0.8, edgecolor='black'),
+                        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.2', color='black'),
+                        fontsize=11, fontweight='bold')
+            
+            # Add decision annotation based on moving averages
+            sma_20_current = sma_20_series.iloc[-1]
+            sma_50_current = sma_50_series.iloc[-1]
+            
+            if current_price > sma_20_current > sma_50_current:
+                decision_text = "BULLISH: Price > SMA20 > SMA50"
+                decision_color = colors['bullish']
+            elif current_price < sma_20_current < sma_50_current:
+                decision_text = "BEARISH: Price < SMA20 < SMA50"
+                decision_color = colors['bearish']
+            else:
+                decision_text = "MIXED: Mixed signals"
+                decision_color = '#ffaa00'
+            
+            ax1.text(0.02, 0.95, decision_text, transform=ax1.transAxes, fontsize=11, fontweight='bold',
+                    bbox=dict(boxstyle="round,pad=0.5", facecolor=decision_color, alpha=0.8, edgecolor='black'),
+                    verticalalignment='top')
+            
+            ax1.set_title(f'{ticker} Price Chart with Moving Averages', fontsize=14, fontweight='bold')
+            ax1.set_ylabel('Price ($)', fontsize=12)
+            ax1.legend(loc='upper left', fontsize=10)
+            ax1.grid(True, alpha=0.4, linestyle='-', linewidth=0.5)
+            ax1.tick_params(axis='both', which='major', labelsize=10)
+            
+            # Volume chart
+            volume_colors = ['green' if close_data.iloc[i] >= close_data.iloc[i-1] else 'red' 
+                           for i in range(1, len(close_data))]
+            volume_colors.insert(0, 'green')  # First bar
+            
+            ax2.bar(data.index, volume_data, alpha=0.7, color=volume_colors, label='Volume', width=0.8)
+            
+            # Add volume moving average
+            volume_sma = volume_data.rolling(window=20).mean()
+            ax2.plot(data.index, volume_sma, color='blue', linewidth=2.0, label='Volume SMA (20)', alpha=0.8)
+            
+            ax2.set_title(f'{ticker} Volume', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Volume', fontsize=10)
+            ax2.legend(loc='upper left', fontsize=9)
+            ax2.grid(True, alpha=0.4, linestyle='-', linewidth=0.5)
+            ax2.tick_params(axis='both', which='major', labelsize=9)
+            
+            # Add timestamp
+            fig.text(0.99, 0.01, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}',
+                    fontsize=8, ha='right', va='bottom', alpha=0.7)
+            
             plt.tight_layout()
             
             buffer = io.BytesIO()
-            plt.savefig(buffer, format='png', dpi=80, bbox_inches='tight')  # Further reduced DPI
+            plt.savefig(buffer, format='png', dpi=120, bbox_inches='tight')  # Increased DPI for better quality
             buffer.seek(0)
             plt.close()  # Explicitly close figure
             gc.collect()  # Force garbage collection
             
             # Cache the result
             self.chart_cache[cache_key] = buffer
-            print(f"✅ Price chart created successfully for {ticker}")
+            print(f"✅ Enhanced price chart created successfully for {ticker}")
             return buffer
         except Exception as e:
-            print(f"❌ Error creating price chart for {ticker}: {e}")
-            logging.error(f"Error creating price chart for {ticker}: {e}")
+            print(f"❌ Error creating enhanced price chart for {ticker}: {e}")
+            logging.error(f"Error creating enhanced price chart for {ticker}: {e}")
             plt.close('all')  # Close all figures on error
             gc.collect()
             return None
@@ -170,9 +250,9 @@ class PDFReportGenerator:
             # Set style for better visuals
             plt.style.use('seaborn-v0_8')
             
-            # Create comprehensive technical analysis chart with smaller size
-            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 6))  # Reduced figure size
-            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=14, fontweight='bold', y=0.98)
+            # Create comprehensive technical analysis chart with larger size
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))  # Increased figure size
+            fig.suptitle(f'{ticker} Technical Analysis Dashboard', fontsize=16, fontweight='bold', y=0.98)
             
             # Color scheme
             colors = {
@@ -186,19 +266,23 @@ class PDFReportGenerator:
                 'histogram': '#7f7f7f',
                 'overbought': '#ff4444',
                 'oversold': '#44ff44',
-                'neutral': '#ffaa00'
+                'neutral': '#ffaa00',
+                'bullish': '#00ff00',
+                'bearish': '#ff0000',
+                'support': '#00ffff',
+                'resistance': '#ff00ff'
             }
             
             # Price chart with moving averages and decision clues
-            ax1.plot(data.index, close_data, label='Close Price', linewidth=2.0, color=colors['price'], alpha=0.9)
+            ax1.plot(data.index, close_data, label='Close Price', linewidth=2.5, color=colors['price'], alpha=0.9)
             
             # Add moving averages if available
             if 'sma_20' in indicators and 'sma_50' in indicators:
                 sma_20_series = close_data.rolling(window=20).mean()
                 sma_50_series = close_data.rolling(window=50).mean()
                 
-                ax1.plot(data.index, sma_20_series, label='SMA 20', linewidth=1.5, color=colors['sma20'], alpha=0.8)
-                ax1.plot(data.index, sma_50_series, label='SMA 50', linewidth=1.5, color=colors['sma50'], alpha=0.8)
+                ax1.plot(data.index, sma_20_series, label='SMA 20', linewidth=2.0, color=colors['sma20'], alpha=0.8)
+                ax1.plot(data.index, sma_50_series, label='SMA 50', linewidth=2.0, color=colors['sma50'], alpha=0.8)
                 
                 # Add decision clues based on moving average crossovers
                 current_price = close_data.iloc[-1]
@@ -209,16 +293,23 @@ class PDFReportGenerator:
                 ax1.axhline(y=sma_20_current, color=colors['sma20'], linestyle='--', alpha=0.6, label=f'SMA 20: ${sma_20_current:.2f}')
                 ax1.axhline(y=sma_50_current, color=colors['sma50'], linestyle='--', alpha=0.6, label=f'SMA 50: ${sma_50_current:.2f}')
                 
-                # Add decision annotation
+                # Add decision annotation with better positioning
                 if current_price > sma_20_current > sma_50_current:
-                    decision_text = "G BULLISH: Price > SMA20 > SMA50"
-                    decision_color = colors['neutral']
+                    decision_text = "[BULLISH] Price > SMA20 > SMA50"
+                    decision_color = colors['bullish']
+                    decision_style = "strong"
                 elif current_price < sma_20_current < sma_50_current:
-                    decision_text = "R BEARISH: Price < SMA20 < SMA50"
-                    decision_color = colors['overbought']
-                else:
-                    decision_text = "Y MIXED: Mixed signals"
+                    decision_text = "[BEARISH] Price < SMA20 < SMA50"
+                    decision_color = colors['bearish']
+                    decision_style = "strong"
+                elif current_price > sma_20_current and sma_20_current < sma_50_current:
+                    decision_text = "[MIXED] Price > SMA20 but SMA20 < SMA50"
                     decision_color = colors['neutral']
+                    decision_style = "weak"
+                else:
+                    decision_text = "[MIXED] Mixed signals"
+                    decision_color = colors['neutral']
+                    decision_style = "weak"
                 
                 # Try to use emoji, fallback to text if font doesn't support it
                 ax1.text(0.02, 0.98, decision_text, transform=ax1.transAxes, fontsize=10, fontname='DejaVu Sans',
@@ -282,13 +373,13 @@ class PDFReportGenerator:
                 # Add RSI decision annotation
                 current_rsi = rsi_series.iloc[-1]
                 if current_rsi > 70:
-                    rsi_decision = "R OVERBOUGHT: Consider selling"
+                    rsi_decision = "[OVERBOUGHT] Consider selling"
                     rsi_color = colors['overbought']
                 elif current_rsi < 30:
-                    rsi_decision = "G OVERSOLD: Consider buying"
+                    rsi_decision = "[OVERSOLD] Consider buying"
                     rsi_color = colors['oversold']
                 else:
-                    rsi_decision = "Y NEUTRAL: No extreme signals"
+                    rsi_decision = "[NEUTRAL] No extreme signals"
                     rsi_color = colors['neutral']
                 
                 ax3.text(0.02, 0.98, f"{rsi_decision}\nRSI: {current_rsi:.1f}", 
@@ -843,40 +934,70 @@ class StockAnalyzer:
         return indicators
     
     def get_news_sentiment(self, ticker: str) -> Tuple[float, str]:
-        """Get news sentiment for a ticker with caching"""
+        """Get news sentiment for a stock using NewsAPI"""
+        cache_key = f"news_{ticker}"
+        
+        # Check cache first
+        if cache_key in self.news_cache:
+            cached_time, cached_result = self.news_cache[cache_key]
+            if (datetime.now() - cached_time).seconds < 3600:  # 1 hour cache
+                print(f"✅ Using cached news sentiment for {ticker}")
+                return cached_result
+        
+        print(f"📰 Fetching news for {ticker}...")
         try:
-            # Check cache first (cache for 1 hour)
-            cache_key = f"news_{ticker}"
-            if cache_key in self.news_cache:
-                cached_time, cached_result = self.news_cache[cache_key]
-                if (datetime.now() - cached_time).seconds < 3600:  # 1 hour cache
-                    print(f"✅ Using cached news sentiment for {ticker}")
-                    return cached_result
-            
-            print(f"📰 Fetching news for {ticker}...")
-            try:
-                stock_info = yf.Ticker(ticker).info
-                company_name = stock_info.get('longName', ticker) if stock_info else ticker
-            except Exception as e:
-                print(f"⚠️ Could not get company info for {ticker}: {e}")
-                company_name = ticker
+            stock_info = yf.Ticker(ticker).info
+            company_name = stock_info.get('longName', ticker) if stock_info else ticker
+        except Exception as e:
+            print(f"⚠️ Could not get company info for {ticker}: {e}")
+            company_name = ticker
 
-            # Check if NEWSAPI_KEY is available
-            if not NEWSAPI_KEY:
-                print(f"⚠️ No NewsAPI key configured for {ticker}")
-                return 0.0, "No news API configured."
+        # Check if NEWSAPI_KEY is available
+        if not NEWSAPI_KEY:
+            print(f"⚠️ No NewsAPI key configured for {ticker}")
+            return 0.0, "No news API configured."
 
-            # Try with ticker first
+        # Try with ticker first
+        try:
             url = f"https://newsapi.org/v2/everything?q={ticker}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
-            response = requests.get(url)
-            news_data = response.json()
+            response = requests.get(url, timeout=10)
+            
+            # Check if response is successful
+            if response.status_code != 200:
+                print(f"⚠️ NewsAPI request failed for {ticker} with status code: {response.status_code}")
+                return 0.0, f"NewsAPI request failed (status: {response.status_code})"
+            
+            # Try to parse JSON response
+            try:
+                news_data = response.json()
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"⚠️ Failed to parse NewsAPI response for {ticker}: {e}")
+                return 0.0, "Failed to parse news response"
+            
+            # Check if news_data is None
+            if news_data is None:
+                print(f"⚠️ NewsAPI returned None for {ticker}")
+                return 0.0, "No news data received"
 
             # If no news, try with company_name
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
                 print(f"⚠️ No news found for ticker {ticker}, trying company name: {company_name}")
                 url = f"https://newsapi.org/v2/everything?q={company_name}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
-                response = requests.get(url)
-                news_data = response.json()
+                response = requests.get(url, timeout=10)
+                
+                if response.status_code != 200:
+                    print(f"⚠️ NewsAPI request failed for company name {company_name} with status code: {response.status_code}")
+                    return 0.0, f"NewsAPI request failed (status: {response.status_code})"
+                
+                try:
+                    news_data = response.json()
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"⚠️ Failed to parse NewsAPI response for company name {company_name}: {e}")
+                    return 0.0, "Failed to parse news response"
+                
+                if news_data is None:
+                    print(f"⚠️ NewsAPI returned None for company name {company_name}")
+                    return 0.0, "No news data received"
 
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
                 print(f"⚠️ No recent news found for {ticker}")
@@ -903,6 +1024,12 @@ class StockAnalyzer:
             
             return result
 
+        except requests.exceptions.Timeout:
+            print(f"⚠️ NewsAPI request timed out for {ticker}")
+            return 0.0, "NewsAPI request timed out"
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ NewsAPI request failed for {ticker}: {e}")
+            return 0.0, f"NewsAPI request failed: {str(e)}"
         except Exception as e:
             print(f"❌ Error getting news for {ticker}: {e}")
             return 0.0, "Error fetching news."
@@ -1121,9 +1248,8 @@ class TelegramNotifier:
     
     def send_trade_alert(self, ticker: str, action: str, price: float, reasoning: str):
         """Send trade alert"""
-        emoji = "🟢" if action == "BUY" else "🔴" if action == "SELL" else "🟡"
         message = f"""
-{emoji} <b>Trade Alert: {ticker}</b>
+<b>Trade Alert: {ticker}</b>
 
 Action: {action}
 Price: ${price:.2f}
@@ -1181,8 +1307,7 @@ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         
         formatted = ""
         for i, decision in enumerate(decisions[:3], 1):
-            emoji = "🟢" if decision['action'] == "BUY" else "🔴" if decision['action'] == "SELL" else "🟡"
-            formatted += f"{i}. {emoji} {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)\n"
+            formatted += f"{i}. {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)\n"
         
         return formatted
 
@@ -1721,8 +1846,7 @@ class AITrader:
             report_lines.append("-" * 50)
             
             for ticker, pos in performance['positions'].items():
-                emoji = "🟢" if pos['unrealized_pl'] >= 0 else "🔴"
-                report_lines.append(f"{emoji} **{ticker}**")
+                report_lines.append(f"**{ticker}**")
                 report_lines.append(f"   Quantity: {pos['quantity']} shares")
                 report_lines.append(f"   Avg Price: ${pos['avg_price']:.2f} | Current: ${pos['current_price']:.2f}")
                 report_lines.append(f"   Market Value: ${pos['market_value']:,.2f} ({pos['position_size_pct']:.1f}% of portfolio)")
@@ -1782,8 +1906,7 @@ class AITrader:
             )
             
             for i, (ticker, pos) in enumerate(positions_sorted[:3]):
-                emoji = "🟢" if pos['unrealized_pl_pct'] >= 0 else "🔴"
-                message += f"{i+1}. {emoji} {ticker}: {pos['unrealized_pl_pct']:+.2f}% (${pos['unrealized_pl']:,.2f})\n"
+                message += f"{i+1}. {ticker}: {pos['unrealized_pl_pct']:+.2f}% (${pos['unrealized_pl']:,.2f})\n"
             
             message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
             
@@ -1842,8 +1965,7 @@ class AITrader:
                 )
                 
                 for i, (ticker, pos) in enumerate(positions_sorted[:3]):
-                    emoji = "🟢" if pos['performance_1m'] >= 0 else "🔴"
-                    message += f"{i+1}. {emoji} {ticker}: {pos['performance_1m']:+.2f}% (1M)\n"
+                    message += f"{i+1}. {ticker}: {pos['performance_1m']:+.2f}% (1M)\n"
                 
                 message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 self.notifier.send_message(message)

@@ -73,8 +73,7 @@ def main():
             if top_decisions:
                 print(f"\n🏆 Top Trading Decisions:")
                 for i, decision in enumerate(top_decisions[:3], 1):
-                    emoji = "🟢" if decision['action'] == "BUY" else "🔴" if decision['action'] == "SELL" else "🟡"
-                    print(f"   {i}. {emoji} {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)")
+                    print(f"   {i}. {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)")
             
             # Ask if user wants to generate a report
             generate_report = input("\n📄 Generate PDF report? (y/n, default: y): ").lower() != 'n'

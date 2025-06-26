@@ -172,8 +172,7 @@ def main():
             if top_decisions:
                 logging.info("🏆 Top Trading Decisions:")
                 for i, decision in enumerate(top_decisions[:3], 1):
-                    emoji = "🟢" if decision['action'] == "BUY" else "🔴" if decision['action'] == "SELL" else "🟡"
-                    logging.info(f"   {i}. {emoji} {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)")
+                    logging.info(f"   {i}. {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)")
         else:
             logging.warning("❌ Trading session failed or returned no data")
         
@@ -211,7 +210,7 @@ def main():
 • Cash: ${summary['cash']:,.2f}
 • Invested: ${summary['invested_amount']:,.2f}
 • Unrealized P&L: ${summary['total_unrealized_pl']:,.2f} ({summary['total_unrealized_pl_pct']:+.2f}%)
-• Active Positions: {summary['positions_count']}
+• Active Positions: {len(positions)}
 
 📈 <b>Today's Session:</b>
 • Stocks Analyzed: {session_data.get('stocks_analyzed', 0) if session_data else 0}
@@ -230,9 +229,7 @@ def main():
                             f"📊 Daily Trading Report - {et_time.strftime('%Y-%m-%d')}"
                         )
                     else:
-                        logging.warning("❌ Could not generate position performance for daily report")
-                else:
-                    logging.error("❌ Failed to generate daily PDF report")
+                        logging.warning("❌ Failed to generate daily PDF report")
                     
             except Exception as e:
                 logging.error(f"❌ Error generating daily report: {e}")
