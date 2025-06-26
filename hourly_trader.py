@@ -14,6 +14,14 @@ import gc
 # Suppress deprecation warnings from dependencies
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="datetime")
 
+# Test datetime functionality at import time
+try:
+    test_time = datetime.now(timezone.utc)
+    print(f"✅ Datetime test successful: {test_time}")
+except Exception as e:
+    print(f"❌ Datetime test failed: {e}")
+    sys.exit(1)
+
 def get_memory_usage():
     """Get current memory usage in MB"""
     try:
@@ -26,47 +34,59 @@ def get_memory_usage():
 
 def log_memory(message=""):
     """Log memory usage with a message"""
-    memory = get_memory_usage()
-    timestamp = datetime.now().strftime('%H:%M:%S')
-    log_msg = f"[{timestamp}] {message} | Memory: {memory:.1f}MB"
-    print(log_msg)
-    logging.info(log_msg)
-    
-    if memory > 400:
-        warning_msg = f"⚠️  WARNING: High memory usage ({memory:.1f}MB) - approaching Render limit (512MB)"
-        print(warning_msg)
-        logging.warning(warning_msg)
-    
-    return memory
+    try:
+        memory = get_memory_usage()
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        log_msg = f"[{timestamp}] {message} | Memory: {memory:.1f}MB"
+        print(log_msg)
+        logging.info(log_msg)
+        
+        if memory > 400:
+            warning_msg = f"⚠️  WARNING: High memory usage ({memory:.1f}MB) - approaching Render limit (512MB)"
+            print(warning_msg)
+            logging.warning(warning_msg)
+        
+        return memory
+    except Exception as e:
+        print(f"❌ Error in log_memory: {e}")
+        return 0
 
 def is_market_hours() -> bool:
     """Check if current time is during market hours (9:30 AM - 4:00 PM ET, Mon-Fri)"""
-    now = datetime.now(timezone.utc)
-    
-    # Convert UTC to ET (UTC-5 for EST, UTC-4 for EDT)
-    # For simplicity, we'll use UTC-5 (EST) - you may want to adjust for daylight savings
-    et_time = now - timedelta(hours=5)
-    
-    # Check if it's a weekday (Monday = 0, Sunday = 6)
-    if et_time.weekday() >= 5:  # Saturday or Sunday
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Convert UTC to ET (UTC-5 for EST, UTC-4 for EDT)
+        # For simplicity, we'll use UTC-5 (EST) - you may want to adjust for daylight savings
+        et_time = now - timedelta(hours=5)
+        
+        # Check if it's a weekday (Monday = 0, Sunday = 6)
+        if et_time.weekday() >= 5:  # Saturday or Sunday
+            return False
+        
+        # Check if it's during market hours (9:30 AM - 4:00 PM ET)
+        market_start = et_time.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_end = et_time.replace(hour=16, minute=0, second=0, microsecond=0)
+        
+        return market_start <= et_time <= market_end
+    except Exception as e:
+        print(f"❌ Error in is_market_hours: {e}")
         return False
-    
-    # Check if it's during market hours (9:30 AM - 4:00 PM ET)
-    market_start = et_time.replace(hour=9, minute=30, second=0, microsecond=0)
-    market_end = et_time.replace(hour=16, minute=0, second=0, microsecond=0)
-    
-    return market_start <= et_time <= market_end
 
 def is_end_of_trading_day() -> bool:
     """Check if this is the last trading session of the day (around 4:00 PM ET)"""
-    now = datetime.now(timezone.utc)
-    et_time = now - timedelta(hours=5)
-    
-    # Check if it's between 3:30 PM and 4:30 PM ET (end of trading day)
-    end_start = et_time.replace(hour=15, minute=30, second=0, microsecond=0)
-    end_end = et_time.replace(hour=16, minute=30, second=0, microsecond=0)
-    
-    return end_start <= et_time <= end_end
+    try:
+        now = datetime.now(timezone.utc)
+        et_time = now - timedelta(hours=5)
+        
+        # Check if it's between 3:30 PM and 4:30 PM ET (end of trading day)
+        end_start = et_time.replace(hour=15, minute=30, second=0, microsecond=0)
+        end_end = et_time.replace(hour=16, minute=30, second=0, microsecond=0)
+        
+        return end_start <= et_time <= end_end
+    except Exception as e:
+        print(f"❌ Error in is_end_of_trading_day: {e}")
+        return False
 
 def main():
     """Main function for hourly trading session"""
@@ -81,42 +101,64 @@ def main():
         
         # Import AITrader
         log_memory("Before importing AITrader")
-        from ai_trader import AITrader
-        log_memory("After importing AITrader")
+        try:
+            from ai_trader import AITrader
+            log_memory("After importing AITrader")
+        except Exception as e:
+            logging.error(f"❌ Error importing AITrader: {e}")
+            return 1
         
         # Initialize the trader
-        trader = AITrader()
-        log_memory("After initializing AITrader")
+        try:
+            trader = AITrader()
+            log_memory("After initializing AITrader")
+        except Exception as e:
+            logging.error(f"❌ Error initializing AITrader: {e}")
+            return 1
         
         # Get current time info
-        now = datetime.now(timezone.utc)
-        et_time = now - timedelta(hours=5)
-        
-        logging.info(f"📅 Trading Session: {et_time.strftime('%Y-%m-%d %H:%M:%S')} ET")
+        try:
+            now = datetime.now(timezone.utc)
+            et_time = now - timedelta(hours=5)
+            
+            logging.info(f"📅 Trading Session: {et_time.strftime('%Y-%m-%d %H:%M:%S')} ET")
+        except Exception as e:
+            logging.error(f"❌ Error getting current time: {e}")
+            return 1
         
         # Get current portfolio status
-        account = trader.get_account_info()
-        log_memory("After getting account info")
-        if account:
-            logging.info(f"💰 Portfolio Value: ${account.get('portfolio_value', 0):,.2f}")
-            logging.info(f"💵 Available Cash: ${account.get('cash', 0):,.2f}")
+        try:
+            account = trader.get_account_info()
+            log_memory("After getting account info")
+            if account:
+                logging.info(f"💰 Portfolio Value: ${account.get('portfolio_value', 0):,.2f}")
+                logging.info(f"💵 Available Cash: ${account.get('cash', 0):,.2f}")
+        except Exception as e:
+            logging.error(f"❌ Error getting account info: {e}")
         
-        positions = trader.get_portfolio_positions()
-        log_memory("After getting positions")
-        if positions:
-            logging.info(f"📈 Active Positions: {len(positions)}")
-            for ticker, pos in positions.items():
-                logging.info(f"   {ticker}: {pos['quantity']} shares @ ${pos['avg_price']:.2f}")
-        else:
-            logging.info("📈 No active positions")
+        try:
+            positions = trader.get_portfolio_positions()
+            log_memory("After getting positions")
+            if positions:
+                logging.info(f"📈 Active Positions: {len(positions)}")
+                for ticker, pos in positions.items():
+                    logging.info(f"   {ticker}: {pos['quantity']} shares @ ${pos['avg_price']:.2f}")
+            else:
+                logging.info("📈 No active positions")
+        except Exception as e:
+            logging.error(f"❌ Error getting positions: {e}")
         
         # Run the trading session with config values
-        log_memory("Before trading session")
-        session_data = trader.analyze_and_trade(
-            max_trades=3,
-            min_confidence=8
-        )
-        log_memory("After trading session")
+        try:
+            log_memory("Before trading session")
+            session_data = trader.analyze_and_trade(
+                max_trades=3,
+                min_confidence=8
+            )
+            log_memory("After trading session")
+        except Exception as e:
+            logging.error(f"❌ Error in trading session: {e}")
+            session_data = None
         
         if session_data:
             logging.info(f"✅ Trading session completed:")
