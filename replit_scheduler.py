@@ -163,6 +163,7 @@ Date: {datetime.now().strftime('%Y-%m-%d')}
             if now.hour == 16 and now.minute == 30:
                 if last_daily_report != now.date():
                     self.send_daily_report()
+                    self.send_daily_position_report()
                     last_daily_report = now.date()
             time.sleep(20)  # Check every 20 seconds
 

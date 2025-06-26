@@ -39,6 +39,13 @@ def main():
                 print(f"✅ Daily portfolio report saved as: {filename}")
                 print(f"📁 File location: {os.path.abspath(filename)}")
             
+            # Also send the PDF to Telegram
+            trader.notifier.send_document(
+                pdf_buffer.getvalue(),
+                filename,
+                f"📊 Manual Daily Portfolio Report - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            
             # Also print a quick summary to console
             performance = trader.get_position_performance()
             if performance:
