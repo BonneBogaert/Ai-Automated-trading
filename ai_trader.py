@@ -532,7 +532,7 @@ class PDFReportGenerator:
                         stock_data = analyzer.get_stock_data(ticker, period="1mo")
                     else:
                         # Fallback: try to get data directly
-                        stock_data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True)
+                        stock_data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True, progress=False)
                     
                     if stock_data.empty:
                         ax.text(0.5, 0.5, f'No data for {ticker}', ha='center', va='center', transform=ax.transAxes)
@@ -666,7 +666,7 @@ class StockAnalyzer:
             if period is None:
                 period = AI_CONFIG['analysis_period']
             print(f"📊 Fetching data for {ticker}...")
-            data = yf.download(ticker, period=period, interval="1d", auto_adjust=True)
+            data = yf.download(ticker, period=period, interval="1d", auto_adjust=True, progress=False)
             if not data.empty:
                 print(f"✅ Successfully fetched {len(data)} days of data for {ticker}")
             else:
@@ -772,7 +772,7 @@ class StockAnalyzer:
             url = f"https://newsapi.org/v2/everything?q={ticker}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
             response = requests.get(url)
             news_data = response.json()
-            print(f"[DEBUG] NewsAPI response for {ticker}: {news_data}")
+            #print(f"[DEBUG] NewsAPI response for {ticker}: {news_data}")
 
             # If no news, try with company_name
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
@@ -780,7 +780,7 @@ class StockAnalyzer:
                 url = f"https://newsapi.org/v2/everything?q={company_name}&apiKey={NEWSAPI_KEY}&language=en&sortBy=publishedAt&pageSize=5"
                 response = requests.get(url)
                 news_data = response.json()
-                print(f"[DEBUG] NewsAPI response for {company_name}: {news_data}")
+                #print(f"[DEBUG] NewsAPI response for {company_name}: {news_data}")
 
             if news_data.get('status') != 'ok' or not news_data.get('articles'):
                 print(f"⚠️ No recent news found for {ticker}")
@@ -1202,26 +1202,33 @@ class AITrader:
         session_data['portfolio_value'] = account.get('portfolio_value', 0)
         session_data['available_cash'] = account.get('cash', 0)
         
-        # Screen for stocks
-        screened_stocks = self.screener.screen_stocks()
-        session_data['stocks_analyzed'] = len(screened_stocks)
-        
-        print(f"\n🔍 Screening Results:")
-        print(f"  Total stocks screened: {len(screened_stocks)}")
-        
-        if not screened_stocks:
-            print("❌ No stocks passed screening - stopping session")
-            return
-        
-        # Always analyze portfolio stocks + fill up to 5 with random others
+        # Get current portfolio positions
         current_positions = self.get_portfolio_positions()
         portfolio_tickers = set(current_positions.keys())
-        portfolio_stocks = [s for s in screened_stocks if s['ticker'] in portfolio_tickers]
-        other_stocks = [s for s in screened_stocks if s['ticker'] not in portfolio_tickers]
-        num_to_pick = max(0, 5 - len(portfolio_stocks))
-        random_others = random.sample(other_stocks, min(num_to_pick, len(other_stocks)))
-        stocks_to_analyze = portfolio_stocks + random_others
-        print(f"  Stocks to analyze this session: {[s['ticker'] for s in stocks_to_analyze]}")
+        portfolio_stocks = []
+        other_stocks = []
+        stocks_to_analyze = []
+        if len(current_positions) < 8:
+            # Screen for stocks only if we have less than 8 positions
+            screened_stocks = self.screener.screen_stocks()
+            session_data['stocks_analyzed'] = len(screened_stocks)
+            portfolio_stocks = [s for s in screened_stocks if s['ticker'] in portfolio_tickers]
+            other_stocks = [s for s in screened_stocks if s['ticker'] not in portfolio_tickers]
+            num_to_pick = min(8 - len(portfolio_stocks), len(other_stocks))
+            random_others = random.sample(other_stocks, num_to_pick) if num_to_pick > 0 else []
+            stocks_to_analyze = portfolio_stocks + random_others
+            print(f"  Stocks to analyze this session: {[s['ticker'] for s in stocks_to_analyze]}")
+        else:
+            # Only analyze current portfolio stocks
+            stocks_to_analyze = []
+            for ticker, pos in current_positions.items():
+                stocks_to_analyze.append({
+                    'ticker': ticker,
+                    'current_price': pos['current_price'],
+                    # Add any other fields needed for downstream code
+                })
+            session_data['stocks_analyzed'] = len(stocks_to_analyze)
+            print(f"  (Portfolio >=8) Only analyzing current positions: {[s['ticker'] for s in stocks_to_analyze]}")
         
         # Analyze each stock (limit to save API costs)
         analysis_results = []
@@ -1716,7 +1723,7 @@ class AITrader:
             portfolio_data = {}
             for ticker in positions.keys():
                 try:
-                    data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True)
+                    data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True, progress=False)
                     if not data.empty:
                         portfolio_data[ticker] = data
                 except Exception as e:
@@ -1757,7 +1764,6 @@ class AITrader:
             invested_usd = np.array(invested_usd)
             fig, ax = plt.subplots(figsize=(12, 6))
             ax.plot(dates, pnl_usd, label='Unrealized P&L (USD)', color='blue', linewidth=2)
-            ax.axhline(y=0, color='red', linestyle='--', alpha=0.5)
             ax.set_ylabel('Unrealized P&L (USD)', fontsize=12)
             ax.set_title('Portfolio Unrealized P&L in USD (Last 30 Days)', fontsize=14)
             ax.grid(True, alpha=0.3)
@@ -1781,7 +1787,7 @@ class AITrader:
             charts = {}
             for ticker, position in positions.items():
                 try:
-                    data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True)
+                    data = yf.download(ticker, period="1mo", interval="1d", auto_adjust=True, progress=False)
                     if data.empty:
                         continue
                     values_usd = []

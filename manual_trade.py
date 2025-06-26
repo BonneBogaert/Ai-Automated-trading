@@ -55,8 +55,8 @@ def main():
         
         # Run the trading session
         session_data = trader.analyze_and_trade(
-            max_trades=max_trades,
-            min_confidence=min_confidence
+            max_trades=3,
+            min_confidence=8
         )
         
         if session_data:
@@ -84,9 +84,14 @@ def main():
                 if pdf_buffer:
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     filename = f"manual_trading_report_{timestamp}.pdf"
+
+                    os.makedirs('reports', exist_ok=True)
+                    filename = os.path.join('reports', filename)
                     with open(filename, "wb") as f:
                         f.write(pdf_buffer.getvalue())
-                    print(f"✅ Trading report saved as: {filename}")
+                        print(f"✅ Daily portfolio report saved as: {filename}")
+                        print(f"📁 File location: {os.path.abspath(filename)}")                    
+                        print(f"✅ Trading report saved as: {filename}")
                 else:
                     print("❌ Failed to generate trading report")
         else:

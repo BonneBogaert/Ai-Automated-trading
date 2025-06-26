@@ -2,14 +2,14 @@
 
 # Trading Parameters
 TRADING_CONFIG = {
-    'max_trades_per_session': 10,      # Maximum number of trades per analysis session
-    'min_confidence_score': 7,        # Minimum AI confidence score to execute trades
-    'position_size_pct': 0.05,        # Percentage of portfolio per trade (2%)
-    'max_position_size': 1000,        # Maximum dollar amount per position
-    'min_stock_price': 5.0,           # Minimum stock price to consider
-    'max_stock_price': 2000.0,        # Maximum stock price to consider
-    'min_market_cap': 5e8,            # Minimum market cap ($500M)
-    'min_volume_ratio': 0.5,          # Minimum volume ratio compared to average
+    'max_trades_per_session': 3,       # Maximum number of trades per analysis session
+    'min_confidence_score': 8,         # Minimum AI confidence score to execute trades
+    'position_size_pct': 0.05,         # Percentage of portfolio per trade (5%)
+    'max_position_size': 1000,         # Maximum dollar amount per position
+    'min_stock_price': 5.0,            # Minimum stock price to consider
+    'max_stock_price': 2000.0,         # Maximum stock price to consider
+    'min_market_cap': 5e8,             # Minimum market cap ($500M)
+    'min_volume_ratio': 0.5,           # Minimum volume ratio compared to average
 }
 
 # Risk Management
