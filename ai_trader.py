@@ -4,7 +4,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from openai import OpenAI
 from textblob import TextBlob
 from alpaca.trading.client import TradingClient
@@ -26,15 +25,13 @@ from reportlab.lib import colors
 import io
 import matplotlib.font_manager as fm
 import random
+import os
 
 # Import all configuration dictionaries from config.py
 from config import (
     TRADING_CONFIG, RISK_CONFIG, AI_CONFIG, SCREENING_CONFIG,
     NOTIFICATION_CONFIG, ETHICAL_CONFIG, STOCK_UNIVERSE, TECHNICAL_CONFIG, LOGGING_CONFIG
 )
-
-# Load environment variables
-load_dotenv()
 
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

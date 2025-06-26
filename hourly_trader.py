@@ -7,21 +7,7 @@ Runs every hour during market hours and generates daily reports.
 import os
 import sys
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 import logging
-
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(levelname)s - %(message)s',
-#     handlers=[
-#         logging.FileHandler('trading.log'),
-#         logging.StreamHandler(sys.stdout)
-#     ]
-# )
 
 def is_market_hours() -> bool:
     """Check if current time is during market hours (9:30 AM - 4:00 PM ET, Mon-Fri)"""
