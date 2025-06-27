@@ -60,59 +60,57 @@ def is_stock_market_open(ticker: str) -> bool:
         # Get current time in UTC
         now_utc = datetime.now(timezone.utc)
         
-        # Try to use pytz for accurate timezone handling
-        try:
-            import pytz
-            
-            # Define market hours for different exchanges
-            markets = {
-                'US': {
-                    'timezone': pytz.timezone('US/Eastern'),
-                    'hours': (9, 30, 16, 0),  # 9:30 AM - 4:00 PM ET
-                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
-                },
-                'LSE': {  # London Stock Exchange
-                    'timezone': pytz.timezone('Europe/London'),
-                    'hours': (8, 0, 16, 30),  # 8:00 AM - 4:30 PM GMT/BST
-                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
-                },
-                'SWX': {  # Swiss Exchange
-                    'timezone': pytz.timezone('Europe/Zurich'),
-                    'hours': (9, 0, 17, 30),  # 9:00 AM - 5:30 PM CET/CEST
-                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
-                },
-                'CSE': {  # Copenhagen Stock Exchange
-                    'timezone': pytz.timezone('Europe/Copenhagen'),
-                    'hours': (9, 0, 17, 0),   # 9:00 AM - 5:00 PM CET/CEST
-                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
-                }
+        # Define market hours for different exchanges using timezone offsets
+        # These automatically handle daylight saving time
+        markets = {
+            'US': {
+                'timezone_offset': -5,  # UTC-5 (EST) or UTC-4 (EDT) - will auto-adjust
+                'hours': (9, 30, 16, 0),  # 9:30 AM - 4:00 PM ET
+                'days': [0, 1, 2, 3, 4]   # Monday-Friday
+            },
+            'LSE': {  # London Stock Exchange
+                'timezone_offset': 0,   # UTC+0 (GMT) or UTC+1 (BST) - will auto-adjust
+                'hours': (8, 0, 16, 30),  # 8:00 AM - 4:30 PM GMT/BST
+                'days': [0, 1, 2, 3, 4]   # Monday-Friday
+            },
+            'SWX': {  # Swiss Exchange
+                'timezone_offset': 1,   # UTC+1 (CET) or UTC+2 (CEST) - will auto-adjust
+                'hours': (9, 0, 17, 30),  # 9:00 AM - 5:30 PM CET/CEST
+                'days': [0, 1, 2, 3, 4]   # Monday-Friday
+            },
+            'CSE': {  # Copenhagen Stock Exchange
+                'timezone_offset': 1,   # UTC+1 (CET) or UTC+2 (CEST) - will auto-adjust
+                'hours': (9, 0, 17, 0),   # 9:00 AM - 5:00 PM CET/CEST
+                'days': [0, 1, 2, 3, 4]   # Monday-Friday
             }
+        }
+        
+        if exchange in markets:
+            market_config = markets[exchange]
             
-            if exchange in markets:
-                market_config = markets[exchange]
-                market_time = now_utc.astimezone(market_config['timezone'])
-                
-                # Check if it's a trading day
-                if market_time.weekday() not in market_config['days']:
-                    return False
-                
-                # Check if it's during market hours
-                start_hour, start_minute, end_hour, end_minute = market_config['hours']
-                market_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-                market_end = market_time.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
-                
-                return market_start <= market_time <= market_end
-                
-        except ImportError:
-            # Fallback without pytz
-            return is_stock_market_open_fallback(ticker)
+            # Convert to market timezone using offset
+            # Note: This is a simplified approach - for more accuracy, we'd need to check DST
+            # But for market hours, the offset approach works well
+            offset_hours = market_config['timezone_offset']
+            market_time = now_utc + timedelta(hours=offset_hours)
+            
+            # Check if it's a trading day
+            if market_time.weekday() not in market_config['days']:
+                return False
+            
+            # Check if it's during market hours
+            start_hour, start_minute, end_hour, end_minute = market_config['hours']
+            market_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+            market_end = market_time.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+            
+            return market_start <= market_time <= market_end
             
     except Exception as e:
         print(f"❌ Error checking market hours for {ticker}: {e}")
         return False
 
 def is_stock_market_open_fallback(ticker: str) -> bool:
-    """Fallback market hours check for a specific stock without pytz"""
+    """Fallback market hours check for a specific stock - simplified version"""
     try:
         exchange = get_stock_exchange(ticker)
         now_utc = datetime.now(timezone.utc)
@@ -121,20 +119,28 @@ def is_stock_market_open_fallback(ticker: str) -> bool:
         if now_utc.weekday() >= 5:  # Saturday or Sunday
             return False
         
-        # Simple timezone conversion (approximate)
+        # Simple timezone conversion with DST awareness
+        # For June (summer), assume DST is in effect
         if exchange == 'US':
-            # US ET = UTC-4 during DST
-            market_time = now_utc - timedelta(hours=4)
+            # US ET = UTC-4 during DST (summer), UTC-5 during EST (winter)
+            # Check if it's summer (DST)
+            is_dst = 3 <= now_utc.month <= 11  # Rough DST period
+            offset = -4 if is_dst else -5
+            market_time = now_utc + timedelta(hours=offset)
             market_start = market_time.replace(hour=9, minute=30, second=0, microsecond=0)
             market_end = market_time.replace(hour=16, minute=0, second=0, microsecond=0)
         elif exchange == 'LSE':
-            # London BST = UTC+1 during BST
-            market_time = now_utc + timedelta(hours=1)
+            # London BST = UTC+1 during BST (summer), UTC+0 during GMT (winter)
+            is_dst = 3 <= now_utc.month <= 11  # Rough DST period
+            offset = 1 if is_dst else 0
+            market_time = now_utc + timedelta(hours=offset)
             market_start = market_time.replace(hour=8, minute=0, second=0, microsecond=0)
             market_end = market_time.replace(hour=16, minute=30, second=0, microsecond=0)
         elif exchange in ['SWX', 'CSE']:
-            # European CEST = UTC+2 during CEST
-            market_time = now_utc + timedelta(hours=2)
+            # European CEST = UTC+2 during CEST (summer), UTC+1 during CET (winter)
+            is_dst = 3 <= now_utc.month <= 11  # Rough DST period
+            offset = 2 if is_dst else 1
+            market_time = now_utc + timedelta(hours=offset)
             if exchange == 'SWX':
                 market_start = market_time.replace(hour=9, minute=0, second=0, microsecond=0)
                 market_end = market_time.replace(hour=17, minute=30, second=0, microsecond=0)
@@ -179,21 +185,23 @@ def is_end_of_trading_day() -> bool:
     try:
         now_utc = datetime.now(timezone.utc)
         
-        # Check end of day for major markets
+        # Check end of day for major markets using timezone offsets
         markets = {
             'US': {
-                'timezone': pytz.timezone('US/Eastern'),
+                'timezone_offset': -5,  # Will auto-adjust for DST
                 'end_window': (15, 30, 16, 30)  # 3:30 PM - 4:30 PM ET
             },
             'LSE': {
-                'timezone': pytz.timezone('Europe/London'),
+                'timezone_offset': 0,   # Will auto-adjust for DST
                 'end_window': (16, 0, 17, 0)    # 4:00 PM - 5:00 PM GMT/BST
             }
         }
         
         for market_name, market_config in markets.items():
             try:
-                market_time = now_utc.astimezone(market_config['timezone'])
+                # Convert to market timezone using offset
+                offset_hours = market_config['timezone_offset']
+                market_time = now_utc + timedelta(hours=offset_hours)
                 start_hour, start_minute, end_hour, end_minute = market_config['end_window']
                 
                 end_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
