@@ -304,6 +304,29 @@ def main():
                 logging.info("🏆 Top Trading Decisions:")
                 for i, decision in enumerate(top_decisions[:3], 1):
                     logging.info(f"   {i}. {decision['ticker']}: {decision['action']} (Confidence: {decision['confidence']}/10)")
+            
+            # Only send Telegram message if trades were actually executed
+            trades_executed = session_data.get('trades_executed', 0)
+            if trades_executed > 0:
+                logging.info(f"📱 Sending Telegram notification for {trades_executed} executed trades")
+                try:
+                    # Send session summary only if trades were made
+                    trader.notifier.send_session_summary(session_data)
+                    
+                    # Generate and send PDF report only if trades were made
+                    pdf_buffer = trader.generate_position_report_pdf()
+                    if pdf_buffer:
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f"trading_report_{timestamp}.pdf"
+                        trader.notifier.send_document(
+                            pdf_buffer.getvalue(),
+                            filename,
+                            f"📊 Trading Report - {trades_executed} trades executed - {now_utc.strftime('%Y-%m-%d %H:%M')}"
+                        )
+                except Exception as e:
+                    logging.error(f"❌ Error sending Telegram notification: {e}")
+            else:
+                logging.info("📱 No trades executed - skipping Telegram notification")
         else:
             logging.warning("❌ Trading session failed or returned no data")
         

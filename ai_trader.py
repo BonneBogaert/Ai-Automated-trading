@@ -1662,19 +1662,6 @@ class AITrader:
         
         print(f"\n✅ Trading session completed: {trades_made} trades executed")
         
-        # Send summary and generate PDF
-        self.notifier.send_session_summary(session_data)
-        
-        # Generate and send PDF report
-        pdf_buffer = self.analyzer.pdf_generator.generate_trading_report(session_data, self.analyzer)
-        if pdf_buffer:
-            filename = f"trading_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            self.notifier.send_document(
-                pdf_buffer.getvalue(),
-                filename,
-                f"📊 Detailed AI Trading Report - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            )
-        
         # Clear caches and force garbage collection
         self.analyzer.clear_caches()
         self._account_cache = None
