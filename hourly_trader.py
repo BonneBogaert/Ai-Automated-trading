@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Hourly AI Trading Session for Render Cron Job
-Runs every hour during market hours and generates daily reports.
+Runs every hour and generates daily reports.
 """
 
 import os
@@ -10,7 +10,6 @@ import warnings
 from datetime import datetime, timedelta, timezone
 import logging
 import gc
-import pytz
 
 # Suppress deprecation warnings from dependencies
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="datetime")
@@ -52,6 +51,105 @@ def log_memory(message=""):
         print(f"❌ Error in log_memory: {e}")
         return 0
 
+def is_stock_market_open(ticker: str) -> bool:
+    """Check if the market for a specific stock is currently open"""
+    try:
+        # Get the exchange for this stock
+        exchange = get_stock_exchange(ticker)
+        
+        # Get current time in UTC
+        now_utc = datetime.now(timezone.utc)
+        
+        # Try to use pytz for accurate timezone handling
+        try:
+            import pytz
+            
+            # Define market hours for different exchanges
+            markets = {
+                'US': {
+                    'timezone': pytz.timezone('US/Eastern'),
+                    'hours': (9, 30, 16, 0),  # 9:30 AM - 4:00 PM ET
+                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
+                },
+                'LSE': {  # London Stock Exchange
+                    'timezone': pytz.timezone('Europe/London'),
+                    'hours': (8, 0, 16, 30),  # 8:00 AM - 4:30 PM GMT/BST
+                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
+                },
+                'SWX': {  # Swiss Exchange
+                    'timezone': pytz.timezone('Europe/Zurich'),
+                    'hours': (9, 0, 17, 30),  # 9:00 AM - 5:30 PM CET/CEST
+                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
+                },
+                'CSE': {  # Copenhagen Stock Exchange
+                    'timezone': pytz.timezone('Europe/Copenhagen'),
+                    'hours': (9, 0, 17, 0),   # 9:00 AM - 5:00 PM CET/CEST
+                    'days': [0, 1, 2, 3, 4]   # Monday-Friday
+                }
+            }
+            
+            if exchange in markets:
+                market_config = markets[exchange]
+                market_time = now_utc.astimezone(market_config['timezone'])
+                
+                # Check if it's a trading day
+                if market_time.weekday() not in market_config['days']:
+                    return False
+                
+                # Check if it's during market hours
+                start_hour, start_minute, end_hour, end_minute = market_config['hours']
+                market_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+                market_end = market_time.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+                
+                return market_start <= market_time <= market_end
+                
+        except ImportError:
+            # Fallback without pytz
+            return is_stock_market_open_fallback(ticker)
+            
+    except Exception as e:
+        print(f"❌ Error checking market hours for {ticker}: {e}")
+        return False
+
+def is_stock_market_open_fallback(ticker: str) -> bool:
+    """Fallback market hours check for a specific stock without pytz"""
+    try:
+        exchange = get_stock_exchange(ticker)
+        now_utc = datetime.now(timezone.utc)
+        
+        # Check if it's a weekday
+        if now_utc.weekday() >= 5:  # Saturday or Sunday
+            return False
+        
+        # Simple timezone conversion (approximate)
+        if exchange == 'US':
+            # US ET = UTC-4 during DST
+            market_time = now_utc - timedelta(hours=4)
+            market_start = market_time.replace(hour=9, minute=30, second=0, microsecond=0)
+            market_end = market_time.replace(hour=16, minute=0, second=0, microsecond=0)
+        elif exchange == 'LSE':
+            # London BST = UTC+1 during BST
+            market_time = now_utc + timedelta(hours=1)
+            market_start = market_time.replace(hour=8, minute=0, second=0, microsecond=0)
+            market_end = market_time.replace(hour=16, minute=30, second=0, microsecond=0)
+        elif exchange in ['SWX', 'CSE']:
+            # European CEST = UTC+2 during CEST
+            market_time = now_utc + timedelta(hours=2)
+            if exchange == 'SWX':
+                market_start = market_time.replace(hour=9, minute=0, second=0, microsecond=0)
+                market_end = market_time.replace(hour=17, minute=30, second=0, microsecond=0)
+            else:  # CSE
+                market_start = market_time.replace(hour=9, minute=0, second=0, microsecond=0)
+                market_end = market_time.replace(hour=17, minute=0, second=0, microsecond=0)
+        else:
+            return False
+        
+        return market_start <= market_time <= market_end
+        
+    except Exception as e:
+        print(f"❌ Error in fallback market hours check for {ticker}: {e}")
+        return False
+
 def get_stock_exchange(ticker: str) -> str:
     """Get the primary exchange for a given stock ticker"""
     # Map of stock tickers to their primary exchanges
@@ -75,196 +173,6 @@ def get_stock_exchange(ticker: str) -> str:
     }
     
     return stock_exchanges.get(ticker, 'US')  # Default to US if unknown
-
-def is_market_hours_for_stocks(stock_tickers: list = None) -> bool:
-    """Check if markets are open for specific stocks"""
-    try:
-        # If no specific stocks provided, check all markets
-        if not stock_tickers:
-            return is_market_hours()
-        
-        # Get unique exchanges for the stocks
-        exchanges = set()
-        for ticker in stock_tickers:
-            exchange = get_stock_exchange(ticker)
-            exchanges.add(exchange)
-        
-        print(f"🔍 Checking markets for stocks: {stock_tickers}")
-        print(f"📊 Relevant exchanges: {list(exchanges)}")
-        
-        # Check if any relevant exchange is open
-        now_utc = datetime.now(timezone.utc)
-        
-        markets = {
-            'US': {
-                'timezone': pytz.timezone('US/Eastern'),
-                'hours': (9, 30, 16, 0),
-                'days': [0, 1, 2, 3, 4]
-            },
-            'LSE': {
-                'timezone': pytz.timezone('Europe/London'),
-                'hours': (8, 0, 16, 30),
-                'days': [0, 1, 2, 3, 4]
-            },
-            'SWX': {
-                'timezone': pytz.timezone('Europe/Zurich'),
-                'hours': (9, 0, 17, 30),
-                'days': [0, 1, 2, 3, 4]
-            },
-            'CSE': {
-                'timezone': pytz.timezone('Europe/Copenhagen'),
-                'hours': (9, 0, 17, 0),
-                'days': [0, 1, 2, 3, 4]
-            }
-        }
-        
-        for exchange in exchanges:
-            if exchange in markets:
-                market_config = markets[exchange]
-                try:
-                    market_time = now_utc.astimezone(market_config['timezone'])
-                    
-                    if market_time.weekday() in market_config['days']:
-                        start_hour, start_minute, end_hour, end_minute = market_config['hours']
-                        market_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-                        market_end = market_time.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
-                        
-                        if market_start <= market_time <= market_end:
-                            print(f"✅ Market OPEN: {exchange} - {market_time.strftime('%Y-%m-%d %H:%M:%S')} {market_config['timezone'].tzname(market_time)}")
-                            return True
-                            
-                except Exception as e:
-                    print(f"⚠️ Error checking {exchange} market: {e}")
-                    continue
-        
-        print(f"❌ No relevant markets open for stocks: {stock_tickers}")
-        return False
-        
-    except Exception as e:
-        print(f"❌ Error in is_market_hours_for_stocks: {e}")
-        return False
-
-def is_market_hours() -> bool:
-    """Check if current time is during market hours for any relevant exchange"""
-    try:
-        # Get current time in UTC
-        now_utc = datetime.now(timezone.utc)
-        
-        # Define market hours for different exchanges
-        markets = {
-            'US': {
-                'timezone': pytz.timezone('US/Eastern'),
-                'hours': (9, 30, 16, 0),  # 9:30 AM - 4:00 PM ET
-                'days': [0, 1, 2, 3, 4]   # Monday-Friday
-            },
-            'LSE': {  # London Stock Exchange
-                'timezone': pytz.timezone('Europe/London'),
-                'hours': (8, 0, 16, 30),  # 8:00 AM - 4:30 PM GMT/BST
-                'days': [0, 1, 2, 3, 4]   # Monday-Friday
-            },
-            'SWX': {  # Swiss Exchange
-                'timezone': pytz.timezone('Europe/Zurich'),
-                'hours': (9, 0, 17, 30),  # 9:00 AM - 5:30 PM CET/CEST
-                'days': [0, 1, 2, 3, 4]   # Monday-Friday
-            },
-            'CSE': {  # Copenhagen Stock Exchange
-                'timezone': pytz.timezone('Europe/Copenhagen'),
-                'hours': (9, 0, 17, 0),   # 9:00 AM - 5:00 PM CET/CEST
-                'days': [0, 1, 2, 3, 4]   # Monday-Friday
-            }
-        }
-        
-        # Check each market
-        for market_name, market_config in markets.items():
-            try:
-                # Convert to market timezone
-                market_time = now_utc.astimezone(market_config['timezone'])
-                
-                # Check if it's a trading day
-                if market_time.weekday() not in market_config['days']:
-                    continue
-                
-                # Check if it's during market hours
-                start_hour, start_minute, end_hour, end_minute = market_config['hours']
-                market_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-                market_end = market_time.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
-                
-                if market_start <= market_time <= market_end:
-                    print(f"✅ Market OPEN: {market_name} - {market_time.strftime('%Y-%m-%d %H:%M:%S')} {market_config['timezone'].tzname(market_time)}")
-                    return True
-                    
-            except Exception as e:
-                print(f"⚠️ Error checking {market_name} market: {e}")
-                continue
-        
-        # If we get here, no markets are open
-        print(f"❌ All markets CLOSED - Current UTC: {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Debug: Show current times in all markets
-        print("🔍 Current times in all markets:")
-        for market_name, market_config in markets.items():
-            try:
-                market_time = now_utc.astimezone(market_config['timezone'])
-                print(f"  {market_name}: {market_time.strftime('%Y-%m-%d %H:%M:%S')} {market_config['timezone'].tzname(market_time)}")
-            except:
-                pass
-        
-        return False
-        
-    except Exception as e:
-        print(f"❌ Error in is_market_hours: {e}")
-        return False
-
-def get_active_markets() -> list:
-    """Get list of currently active markets"""
-    try:
-        now_utc = datetime.now(timezone.utc)
-        active_markets = []
-        
-        markets = {
-            'US': {
-                'timezone': pytz.timezone('US/Eastern'),
-                'hours': (9, 30, 16, 0),
-                'days': [0, 1, 2, 3, 4]
-            },
-            'LSE': {
-                'timezone': pytz.timezone('Europe/London'),
-                'hours': (8, 0, 16, 30),
-                'days': [0, 1, 2, 3, 4]
-            },
-            'SWX': {
-                'timezone': pytz.timezone('Europe/Zurich'),
-                'hours': (9, 0, 17, 30),
-                'days': [0, 1, 2, 3, 4]
-            },
-            'CSE': {
-                'timezone': pytz.timezone('Europe/Copenhagen'),
-                'hours': (9, 0, 17, 0),
-                'days': [0, 1, 2, 3, 4]
-            }
-        }
-        
-        for market_name, market_config in markets.items():
-            try:
-                market_time = now_utc.astimezone(market_config['timezone'])
-                
-                if market_time.weekday() in market_config['days']:
-                    start_hour, start_minute, end_hour, end_minute = market_config['hours']
-                    market_start = market_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-                    market_end = market_time.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
-                    
-                    if market_start <= market_time <= market_end:
-                        active_markets.append(market_name)
-                        
-            except Exception as e:
-                print(f"⚠️ Error checking {market_name} market: {e}")
-                continue
-        
-        return active_markets
-        
-    except Exception as e:
-        print(f"❌ Error getting active markets: {e}")
-        return []
 
 def is_end_of_trading_day() -> bool:
     """Check if this is the end of the trading day for any major market"""
@@ -311,14 +219,8 @@ def main():
         logging.info("🚀 Starting Hourly AI Trading Session...")
         initial_memory = log_memory("Session started")
         
-        # Check if we're in market hours
-        if not is_market_hours():
-            logging.info("⏰ Outside market hours - skipping trading session")
-            # Show which markets are active for debugging
-            active_markets = get_active_markets()
-            if active_markets:
-                logging.info(f"🔍 Active markets: {', '.join(active_markets)}")
-            return
+        # Always proceed with trading session - market hours will be checked per stock
+        logging.info("✅ Proceeding with trading session - market hours will be checked per stock")
         
         # Import AITrader
         log_memory("Before importing AITrader")
@@ -340,10 +242,7 @@ def main():
         # Get current time info
         try:
             now_utc = datetime.now(timezone.utc)
-            et_tz = pytz.timezone('US/Eastern')
-            et_time = now_utc.astimezone(et_tz)
-            
-            logging.info(f"📅 Trading Session: {et_time.strftime('%Y-%m-%d %H:%M:%S')} ET")
+            logging.info(f"📅 Trading Session: {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC")
         except Exception as e:
             logging.error(f"❌ Error getting current time: {e}")
             return 1
@@ -425,7 +324,7 @@ def main():
                     if performance:
                         summary = performance['portfolio_summary']
                         message = f"""
-📊 <b>End of Day Report - {et_time.strftime('%Y-%m-%d')}</b>
+📊 <b>End of Day Report - {now_utc.strftime('%Y-%m-%d')}</b>
 
 💰 <b>Portfolio Summary:</b>
 • Total Value: ${summary['total_value']:,.2f}
@@ -440,7 +339,7 @@ def main():
 • Buy Orders: {session_data.get('buy_orders', 0) if session_data else 0}
 • Sell Orders: {session_data.get('sell_orders', 0) if session_data else 0}
 
-⏰ Generated: {et_time.strftime('%Y-%m-%d %H:%M:%S')} ET
+⏰ Generated: {now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC
                         """
                         trader.notifier.send_message(message)
                         
@@ -448,7 +347,7 @@ def main():
                         trader.notifier.send_document(
                             pdf_buffer.getvalue(),
                             f"daily_report_{timestamp}.pdf",
-                            f"📊 Daily Trading Report - {et_time.strftime('%Y-%m-%d')}"
+                            f"📊 Daily Trading Report - {now_utc.strftime('%Y-%m-%d')}"
                         )
                     else:
                         logging.warning("❌ Failed to generate daily PDF report")

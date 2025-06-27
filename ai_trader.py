@@ -1511,6 +1511,14 @@ class AITrader:
             try:
                 print(f"\n📊 Analyzing {ticker} ({i+1}/{len(stocks_to_analyze)})...")
                 
+                # Check if this stock's market is open before expensive operations
+                from hourly_trader import is_stock_market_open
+                if not is_stock_market_open(ticker):
+                    print(f"⏰ {ticker} market is closed - skipping analysis")
+                    continue
+                
+                print(f"✅ {ticker} market is open - proceeding with analysis")
+                
                 # Get technical data
                 data = self.analyzer.get_stock_data(ticker)
                 if data.empty:
