@@ -35,18 +35,20 @@ def get_memory_usage():
 def log_memory(message=""):
     """Log memory usage with a message"""
     try:
-        memory = get_memory_usage()
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        log_msg = f"[{timestamp}] {message} | Memory: {memory:.1f}MB"
-        print(log_msg)
-        logging.info(log_msg)
+        # Temporarily disabled memory logging
+        # memory = get_memory_usage()
+        # timestamp = datetime.now().strftime('%H:%M:%S')
+        # log_msg = f"[{timestamp}] {message} | Memory: {memory:.1f}MB"
+        # print(log_msg)
+        # logging.info(log_msg)
         
-        if memory > 400:
-            warning_msg = f"⚠️  WARNING: High memory usage ({memory:.1f}MB) - approaching Render limit (512MB)"
-            print(warning_msg)
-            logging.warning(warning_msg)
+        # if memory > 400:
+        #     warning_msg = f"⚠️  WARNING: High memory usage ({memory:.1f}MB) - approaching Render limit (512MB)"
+        #     print(warning_msg)
+        #     logging.warning(warning_msg)
         
-        return memory
+        # return memory
+        return 0
     except Exception as e:
         print(f"❌ Error in log_memory: {e}")
         return 0
